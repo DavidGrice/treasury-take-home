@@ -1,5 +1,6 @@
 // Web Worker to run OpenCV.js off the main thread
-self.importScripts('https://docs.opencv.org/4.x/opencv.js');
+// Load local OpenCV build from /public/libs
+self.importScripts('/libs/opencv.js');
 
 let cvReady = false;
 if (typeof Module === 'object') {
@@ -62,6 +63,86 @@ self.onmessage = async (e) => {
       const blob = await canvas.convertToBlob({ type: 'image/png' });
       // send back blob, count and rectangles
       self.postMessage({ type: 'result', found, rects, blob });
+    } catch (err) {
+      self.postMessage({ type: 'error', message: String(err) });
+    }
+  }
+  else if (type === 'blurcheck') {
+    const { bitmap } = e.data;
+    try {
+      if (!cvReady) {
+        await new Promise((res) => {
+          const wait = () => { if (cvReady) res(); else setTimeout(wait, 50); };
+          wait();
+        });
+      }
+      const width = bitmap.width;
+      const height = bitmap.height;
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const imgData = ctx.getImageData(0, 0, width, height);
+      const src = cv.matFromImageData(imgData);
+      const gray = new cv.Mat();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+      const lap = new cv.Mat();
+      cv.Laplacian(gray, lap, cv.CV_64F);
+      const mean = new cv.Mat();
+      const stddev = new cv.Mat();
+      cv.meanStdDev(lap, mean, stddev);
+      const variance = Math.pow(stddev.doubleAt(0, 0), 2);
+      src.delete(); gray.delete(); lap.delete(); mean.delete(); stddev.delete();
+      self.postMessage({ type: 'blurResult', variance });
+    } catch (err) {
+      self.postMessage({ type: 'error', message: String(err) });
+    }
+  }
+  else if (type === 'flashcheck') {
+    const { bitmap } = e.data;
+    try {
+      const width = bitmap.width;
+      const height = bitmap.height;
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const imgData = ctx.getImageData(0, 0, width, height);
+
+      // Use OpenCV connected-region detection: threshold for very bright
+      // pixels, then find contours and compute area ratios.
+      const src = cv.matFromImageData(imgData);
+      const gray = new cv.Mat();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+      // Threshold to keep only extremely bright pixels
+      const thresh = new cv.Mat();
+      const threshVal = 250; // very bright
+      cv.threshold(gray, thresh, threshVal, 255, cv.THRESH_BINARY);
+
+      // total bright pixels
+      const brightCount = cv.countNonZero(thresh);
+      const brightRatio = brightCount / (width * height);
+
+      const contours = new cv.MatVector();
+      const hierarchy = new cv.Mat();
+      cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      let maxArea = 0;
+      let totalArea = 0;
+      for (let i = 0; i < contours.size(); i++) {
+        const cnt = contours.get(i);
+        const area = cv.contourArea(cnt);
+        totalArea += area;
+        if (area > maxArea) maxArea = area;
+        cnt.delete();
+      }
+
+      const largestRegionRatio = maxArea / (width * height);
+
+      src.delete(); gray.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
+
+      self.postMessage({ type: 'flashResult', brightRatio, largestRegionRatio });
     } catch (err) {
       self.postMessage({ type: 'error', message: String(err) });
     }

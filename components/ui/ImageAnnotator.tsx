@@ -112,7 +112,7 @@ const ImageAnnotator = forwardRef(function ImageAnnotator({
 
   return (
     <div style={{ userSelect: 'none' }}>
-      <div style={{ maxWidth: 640, position: 'relative' }}>
+      <div style={{ maxWidth: 420, position: 'relative' }}>
         <img ref={imgRef} src={src} alt="annotate" draggable={false} style={{ width: '100%', display: 'block' }} />
         <div
           ref={overlayRef}

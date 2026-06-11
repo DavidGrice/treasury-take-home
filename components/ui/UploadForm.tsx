@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Button from "./Button";
 import ImageAnnotator from "./ImageAnnotator";
+import Modal from "./Modal";
 
 export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => void }) {
   const [file, setFile] = useState<File | null>(null);
@@ -12,17 +13,26 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
   const [netContents, setNetContents] = useState("");
   const [producer, setProducer] = useState("");
   const [country, setCountry] = useState("");
-  const [warning, setWarning] = useState("");
+  const [parsedFields, setParsedFields] = useState<any>(null);
+  const [ocrRaw, setOcrRaw] = useState<string>('');
+  const [assessmentScore, setAssessmentScore] = useState<number | null>(null);
+  const [fieldMatches, setFieldMatches] = useState<Record<string, boolean | 'no-input'>>({});
+  const [showModal, setShowModal] = useState(false);
+  const [modalText, setModalText] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const annotRef = useRef<any>(null);
+  const [step, setStep] = useState<number>(0); // 0: text, 1: image, 2: checklist
+
+  // checklist state
+  const [isBlurry, setIsBlurry] = useState<boolean | null>(null);
+  const [hasFlash, setHasFlash] = useState<boolean | null>(null);
 
   const handleFile = (f: File | null) => {
     setFile(f);
     if (f) {
       const url = URL.createObjectURL(f);
       setPreview(url);
-      // auto-run detection immediately after selecting/uploading
-      runOpenCVOnBlob(f).catch((e) => console.warn('Auto-detect failed', e));
+      // preview only; analysis will run when user clicks Next from the image step
     }
     else setPreview(null);
   };
@@ -51,16 +61,43 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     setNetContents("");
     setProducer("");
     setCountry("");
-    setWarning("");
     if (inputRef.current) inputRef.current.value = "";
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = { brand, typeDesignation, alcoholContent, netContents, producer, country, warning, fileName: file?.name };
-    console.log("Submitting form:", payload);
-    onSubmit?.(payload);
-    clear();
+    const hasBlockingFailure = Object.values(checkStatus || {}).some(v => v === 'fail') || isBlurry === true || hasFlash === true;
+    if (hasBlockingFailure) {
+      setModalText('Cannot submit: image fails quality checks or fields did not match. All images must be clear and free of blur or flash.');
+      setShowModal(true);
+      return;
+    }
+
+    const id = crypto.randomUUID();
+    const formData = new FormData();
+    formData.append("id", id);
+    formData.append("brand", brand);
+    formData.append("typeDesignation", typeDesignation);
+    formData.append("alcoholContent", alcoholContent);
+    formData.append("netContents", netContents);
+    formData.append("producer", producer);
+    formData.append("country", country);
+    formData.append("warning", parsedFields?.warning || '');
+    formData.append("assessmentScore", assessmentScore === null ? '' : String(assessmentScore));
+    if (file) formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/submissions", { method: "POST", body: formData });
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      const saved = await res.json();
+      console.log("Submitted:", saved);
+      onSubmit?.(saved);
+      clear();
+    } catch (err) {
+      console.error("Failed to submit form:", err);
+      setModalText('Failed to submit form. Please try again.');
+      setShowModal(true);
+    }
   };
 
   const [ocrLoading, setOcrLoading] = useState(false);
@@ -81,6 +118,8 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     if (!blobLike) return alert('No image selected');
     setOcrLoading(true);
     let worker: Worker | null = null;
+    let finalParsed: any = null;
+    addLog('runOpenCVOnBlob: starting OpenCV worker');
     try {
       // try worker first (served from /public/opencv-worker.js)
       worker = new Worker('/opencv-worker.js');
@@ -99,22 +138,19 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
 
       if (result.blob) {
         // keep original preview (do not replace with annotated image)
-        console.log('OpenCV worker rects:', result.rects || []);
+        addLog(`OpenCV worker rects: ${JSON.stringify(result.rects || [])}`);
         // run OCR on each rect, parse and log structured fields
         if (result.rects && result.rects.length > 0) {
-          try {
-            const ocrResults = await runOCROnRects(blobLike, result.rects);
-            const parsed = parseFromRects(ocrResults || []);
-            console.log('Parsed fields:', parsed);
-            if (parsed.brand) setBrand(parsed.brand);
-            if (parsed.typeDesignation) setTypeDesignation(parsed.typeDesignation);
-            if (parsed.alcohol) setAlcoholContent(parsed.alcohol);
-            if (parsed.net) setNetContents(parsed.net);
-            if (parsed.producer) setProducer(parsed.producer);
-            if (parsed.country) setCountry(parsed.country);
-            if (parsed.warning) setWarning(parsed.warning);
-            try { if (annotRef.current && typeof annotRef.current.clearBoxes === 'function') annotRef.current.clearBoxes(); } catch (e) {}
-          } catch (e) { console.warn('OCR on rects failed', e); }
+            try {
+              addLog('runOpenCVOnBlob: sending rects to OCR worker');
+              const ocrResults = await runOCROnRects(blobLike, result.rects);
+              const parsed = parseFromRects(ocrResults || []);
+              console.log('Parsed fields:', parsed);
+              finalParsed = parsed || {};
+              setParsedFields(finalParsed);
+              setOcrRaw(finalParsed?.raw || '');
+              try { if (annotRef.current && typeof annotRef.current.clearBoxes === 'function') annotRef.current.clearBoxes(); } catch (e) {}
+            } catch (e) { console.warn('OCR on rects failed', e); }
         }
       } else {
         throw new Error('No blob returned from worker');
@@ -179,13 +215,9 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
             const ocrResults = await runOCROnRects(canvasBlob, rects);
             const parsed = parseFromRects(ocrResults || []);
             console.log('Parsed fields (fallback):', parsed);
-            if (parsed.brand) setBrand(parsed.brand);
-            if (parsed.typeDesignation) setTypeDesignation(parsed.typeDesignation);
-            if (parsed.alcohol) setAlcoholContent(parsed.alcohol);
-            if (parsed.net) setNetContents(parsed.net);
-            if (parsed.producer) setProducer(parsed.producer);
-            if (parsed.country) setCountry(parsed.country);
-            if (parsed.warning) setWarning(parsed.warning);
+            finalParsed = parsed || {};
+            setParsedFields(finalParsed);
+            setOcrRaw(finalParsed?.raw || '');
             try { if (annotRef.current && typeof annotRef.current.clearBoxes === 'function') annotRef.current.clearBoxes(); } catch (e) {}
           } catch (e) { console.warn('OCR on rects failed', e); }
         }
@@ -197,6 +229,8 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
       if (worker) worker.terminate();
       setOcrLoading(false);
     }
+
+    return finalParsed;
   };
 
   const runOpenCVOnFile = async () => {
@@ -207,65 +241,335 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
   const runOCROnRects = async (blobLike: Blob | null, rects: any[]) => {
     if (!blobLike) return;
     try {
-      const { createWorker } = await import('tesseract.js');
-      const worker = await createWorker({ logger: (m: any) => console.log('tess:', m) });
-      if (typeof worker.load === 'function') await worker.load();
-      if (typeof worker.loadLanguage === 'function') await worker.loadLanguage('eng');
-      if (typeof worker.initialize === 'function') await worker.initialize('eng');
-
-      // create an ImageBitmap for cropping
-      const bmp = await createImageBitmap(blobLike);
-      // temporary canvas to crop
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d')!;
-
-      // filter rects: remove tiny or invalid boxes and clamp to bitmap bounds
-      const filtered = (rects || []).map((r: any) => ({
-        x: Math.max(0, Math.round(r.x || 0)),
-        y: Math.max(0, Math.round(r.y || 0)),
-        width: Math.max(0, Math.round(r.width || 0)),
-        height: Math.max(0, Math.round(r.height || 0)),
-        area: r.area || ((r.width || 0) * (r.height || 0)),
-      })).filter((r: any) => r.width > 2 && r.height > 2 && r.area > 200)
-        .map((r: any) => {
-          // clamp to bmp bounds
-          const x = Math.min(r.x, bmp.width - 1);
-          const y = Math.min(r.y, bmp.height - 1);
-          const w = Math.min(r.width, bmp.width - x);
-          const h = Math.min(r.height, bmp.height - y);
-          return { x, y, width: w, height: h, area: w * h };
-        });
-
-      const ocrResults: Array<{ rect: any; text: string }> = [];
-      for (let i = 0; i < filtered.length; i++) {
-        const r = filtered[i];
-        const w = Math.max(1, r.width);
-        const h = Math.max(1, r.height);
-        canvas.width = w;
-        canvas.height = h;
-        ctx.clearRect(0, 0, w, h);
-        try {
-          ctx.drawImage(bmp, r.x, r.y, r.width, r.height, 0, 0, w, h);
-        } catch (err) {
-          console.warn('drawImage failed for rect', r, err);
-          continue;
-        }
-        const cropBlob = await new Promise<Blob | null>((res) => canvas.toBlob((b) => res(b), 'image/png'));
-        if (!cropBlob) { console.warn('Empty crop blob for rect', r); continue; }
-        try {
-          const { data } = await worker.recognize(cropBlob as any);
-          const text = data?.text?.trim() || '';
-          console.log(`OCR rect ${i}:`, { rect: r, text });
-          ocrResults.push({ rect: r, text });
-        } catch (err) {
-          console.warn('OCR failed for rect', i, err);
-        }
-      }
-      try { if (worker && typeof worker.terminate === 'function') await worker.terminate(); } catch (e) {}
-      return ocrResults;
+      addLog('Starting OCR worker');
+      // prepare buffer to transfer
+      const buffer = await (blobLike as Blob).arrayBuffer();
+      const worker = new Worker('/ocr-worker.js');
+      worker.postMessage({ type: 'ocr', buffer, rects }, [buffer]);
+      const res = await new Promise<any>((res, rej) => {
+        const t = setTimeout(() => rej(new Error('ocr worker timeout')), 120000);
+        worker.onmessage = (ev) => {
+          if (ev.data.type === 'log') addLog(ev.data.text);
+          else if (ev.data.type === 'result') { clearTimeout(t); res(ev.data.results); }
+          else if (ev.data.type === 'error') { clearTimeout(t); rej(new Error(ev.data.message)); }
+        };
+      });
+      worker.terminate();
+      addLog('OCR worker finished');
+      return res;
     } catch (err) {
+      addLog(`OCR worker failed: ${String(err)}`);
       console.warn('Tesseract import or OCR failed', err);
       alert('Text extraction failed. See console for details.');
+    }
+  };
+
+  // analyze image for blur/flash heuristics using OpenCV when available
+  const analyzeImageForChecklist = async (blobLike: Blob | null) => {
+    if (!blobLike) return;
+    try {
+      const bmp = await createImageBitmap(blobLike as Blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width;
+      canvas.height = bmp.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(bmp, 0, 0);
+
+      // For backwards compatibility this function runs both checks
+      // but the UI will call specific checks sequentially.
+      // basic JS bright-spot heuristic (flash)
+      let flashDetected: boolean | null = null;
+      try {
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        let bright = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          if (lum > 240) bright++;
+        }
+        const brightRatio = bright / (canvas.width * canvas.height);
+        flashDetected = brightRatio > 0.002; // if more than 0.2% pixels extremely bright
+        setHasFlash(flashDetected);
+      } catch (err) {
+        setHasFlash(null);
+        flashDetected = null;
+      }
+
+      // try OpenCV-based blur detection (variance of Laplacian)
+      let blurryDetected: boolean | null = null;
+      try {
+        const { loadOpenCV } = await import('./opencvLoader');
+        const cv = await loadOpenCV();
+        const img = await createImageBitmap(blobLike as Blob);
+        const tmp = document.createElement('canvas');
+        tmp.width = img.width;
+        tmp.height = img.height;
+        const tctx = tmp.getContext('2d')!;
+        tctx.drawImage(img, 0, 0);
+        const imgData = tctx.getImageData(0, 0, tmp.width, tmp.height);
+        const src = cv.matFromImageData(imgData);
+        const gray = new cv.Mat();
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        const lap = new cv.Mat();
+        cv.Laplacian(gray, lap, cv.CV_64F);
+        const mean = new cv.Mat();
+        const stddev = new cv.Mat();
+        cv.meanStdDev(lap, mean, stddev);
+        const variance = Math.pow(stddev.doubleAt(0, 0), 2);
+        // lower variance -> blur; threshold chosen heuristically
+        blurryDetected = variance < 100;
+        setIsBlurry(blurryDetected);
+        src.delete(); gray.delete(); lap.delete(); mean.delete(); stddev.delete();
+      } catch (err) {
+        console.warn('OpenCV blur check failed', err);
+        setIsBlurry(null);
+        blurryDetected = null;
+      }
+
+      return { blurryDetected, flashDetected };
+    } catch (err) {
+      console.warn('analyzeImageForChecklist failed', err);
+      setIsBlurry(null); setHasFlash(null);
+    }
+  };
+
+  // Run blur-only check (sequential UI)
+  const analyzeBlurForChecklist = async (blobLike: Blob | null) => {
+    if (!blobLike) return null;
+    addLog('Starting blur check (worker)');
+    try {
+      const worker = new Worker('/opencv-worker.js');
+      const bmp = await createImageBitmap(blobLike as Blob);
+      worker.postMessage({ type: 'blurcheck', bitmap: bmp }, [bmp]);
+      const res = await new Promise<any>((res, rej) => {
+        const t = setTimeout(() => rej(new Error('blur worker timeout')), 20000);
+        worker.onmessage = (ev) => {
+          clearTimeout(t);
+          if (ev.data.type === 'blurResult') res(ev.data.variance);
+          else if (ev.data.type === 'error') rej(new Error(ev.data.message));
+          else if (ev.data.type === 'log') addLog(ev.data.text);
+        };
+      });
+      worker.terminate();
+      addLog(`Blur variance: ${res}`);
+      const blurryDetected = (typeof res === 'number') ? (res < 100) : null;
+      setIsBlurry(blurryDetected);
+      return blurryDetected;
+    } catch (err) {
+      addLog(`Blur check failed: ${String(err)}`);
+      setIsBlurry(null);
+      return null;
+    }
+  };
+
+  // Run flash-only check (sequential UI)
+  const analyzeFlashForChecklist = async (blobLike: Blob | null) => {
+    if (!blobLike) return null;
+    addLog('Starting flash check (worker)');
+    try {
+      const worker = new Worker('/opencv-worker.js');
+      const bmp = await createImageBitmap(blobLike as Blob);
+      worker.postMessage({ type: 'flashcheck', bitmap: bmp }, [bmp]);
+      const res = await new Promise<any>((res, rej) => {
+        const t = setTimeout(() => rej(new Error('flash worker timeout')), 20000);
+        worker.onmessage = (ev) => {
+          clearTimeout(t);
+          if (ev.data.type === 'flashResult') res(ev.data);
+          else if (ev.data.type === 'error') rej(new Error(ev.data.message));
+          else if (ev.data.type === 'log') addLog(ev.data.text);
+        };
+      });
+      worker.terminate();
+      addLog(`Flash metrics: ${JSON.stringify(res)}`);
+      // use connected-region metric primarily: if the largest contiguous bright region
+      // occupies more than 5% of the image, treat as flash/overexposure
+      const brightRatio = typeof res === 'object' ? res.brightRatio : (typeof res === 'number' ? res : 0);
+      const largestRegionRatio = typeof res === 'object' ? (res.largestRegionRatio || 0) : 0;
+      const flashDetected = (typeof largestRegionRatio === 'number') ? (largestRegionRatio > 0.05) : ((typeof brightRatio === 'number') ? (brightRatio > 0.2) : null);
+      setHasFlash(flashDetected);
+      return flashDetected;
+    } catch (err) {
+      addLog(`Flash check failed: ${String(err)}`);
+      setHasFlash(null);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    // when file removed, reset checklist
+    if (!file) {
+      setIsBlurry(null); setHasFlash(null);
+    }
+  }, [file]);
+
+  // don't auto-open modal; modal will be shown after orchestrated checks if needed
+
+  // match each input field's value (treated as a regex, falling back to literal)
+  // against the full raw OCR text. Inputs left blank are 'no-input'.
+  const computeFieldMatches = (rawText: string, inputs: Record<string, string>) => {
+    const raw = (rawText || '').trim();
+    const fm: Record<string, boolean | 'no-input'> = {};
+    let matches = 0;
+    let total = 0;
+
+    for (const [key, input] of Object.entries(inputs)) {
+      const inVal = (input || '').trim();
+      if (!inVal) {
+        fm[key] = 'no-input';
+        continue;
+      }
+      total++;
+      // treat user input as regex; if invalid, fall back to literal match
+      let ok = false;
+      try {
+        const re = new RegExp(inVal, 'i');
+        ok = re.test(raw);
+      } catch (e) {
+        try {
+          const esc = inVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re2 = new RegExp(esc, 'i');
+          ok = re2.test(raw);
+        } catch (e2) { ok = false; }
+      }
+      fm[key] = ok;
+      if (ok) matches++;
+    }
+
+    return { fm, matches, total };
+  };
+
+  // compute assessment by comparing user inputs (treated as regex) to parsed OCR fields
+  const computeAssessment = () => {
+    const token = ++assessmentTokenRef.current;
+    setAssessing(true);
+    // schedule heavy work off the render path to keep UI responsive
+    setTimeout(() => {
+      if (token !== assessmentTokenRef.current) return; // cancelled
+      const rawText = (parsedFields || {}).raw || '';
+      // country is excluded: it's manually entered and rarely printed on the
+      // label itself, so it's carried over from the form rather than OCR-validated
+      const { fm, matches, total } = computeFieldMatches(rawText, {
+        brand, typeDesignation, alcohol: alcoholContent, net: netContents, producer,
+      });
+
+      if (token !== assessmentTokenRef.current) return;
+      if (total === 0) setAssessmentScore(null);
+      else setAssessmentScore(Math.round((matches / total) * 100));
+      setFieldMatches(fm);
+      setAssessing(false);
+    }, 0);
+  };
+
+  useEffect(() => {
+    // recompute whenever parsed fields or user inputs change
+    computeAssessment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsedFields, brand, typeDesignation, alcoholContent, netContents, producer, country]);
+
+  // assessment scheduling state
+  const assessmentTokenRef = React.useRef(0);
+  const [assessing, setAssessing] = useState(false);
+  const addLog = (msg: string) => {
+    console.log(`ChecklistLog: ${msg}`);
+  };
+
+  const [checkStatus, setCheckStatus] = useState<Record<string, 'idle' | 'running' | 'ok' | 'fail'>>({});
+  const [runningChecks, setRunningChecks] = useState(false);
+
+  const allFieldsFilled = [brand, typeDesignation, alcoholContent, netContents, producer, country].every(v => (v || '').toString().trim().length > 0);
+
+  const runAllChecks = async () => {
+    if (!file) return alert('Please upload an image first');
+    setRunningChecks(true);
+    // reset statuses
+    const initial: Record<string, any> = { blurry: 'running', flash: 'running', ocr: 'idle' };
+    ['brand','typeDesignation','alcohol','net','producer'].forEach(k => initial[k] = 'idle');
+    setCheckStatus(initial);
+    addLog('runAllChecks: started');
+    // move to checklist view immediately so user sees running spinners
+    setStep(2);
+
+    // 1) analyze image quality sequentially: blur then flash
+    try {
+      // blur first
+      addLog('runAllChecks: starting blur check');
+      setCheckStatus((s) => ({ ...s, blurry: 'running' }));
+      const blurryDetected = await analyzeBlurForChecklist(file);
+      addLog(`runAllChecks: blur check result=${String(blurryDetected)}`);
+      setCheckStatus((s) => ({ ...s, blurry: blurryDetected ? 'fail' : 'ok' }));
+      if (blurryDetected) {
+        setModalText('Warning: Image appears blurry. All images must be clear and free of blur.');
+        setShowModal(true);
+        setRunningChecks(false);
+        return;
+      }
+
+      // flash next
+      addLog('runAllChecks: starting flash check');
+      setCheckStatus((s) => ({ ...s, flash: 'running' }));
+      const flashDetected = await analyzeFlashForChecklist(file);
+      addLog(`runAllChecks: flash check result=${String(flashDetected)}`);
+      setCheckStatus((s) => ({ ...s, flash: flashDetected ? 'fail' : 'ok' }));
+      if (flashDetected) {
+        setModalText('Warning: Flash or extreme highlights detected. All images must be free of flash.');
+        setShowModal(true);
+        setRunningChecks(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Image quality check failed', err);
+      setCheckStatus((s) => ({ ...s, blurry: 'fail', flash: 'fail' }));
+      setModalText('Image quality analysis failed');
+      setShowModal(true);
+      setRunningChecks(false);
+      return;
+    }
+
+    // 2) run OCR / parsing
+    addLog('runAllChecks: starting OCR');
+    setCheckStatus((s) => {
+      const next: Record<string, any> = { ...s, ocr: 'running' };
+      ['brand','typeDesignation','alcohol','net','producer'].forEach(k => next[k] = 'running');
+      return next;
+    });
+    try {
+      const parsed = await runOpenCVOnBlob(file);
+      addLog('runAllChecks: OCR finished');
+      // parsed is set in state by runOpenCVOnBlob too
+      setCheckStatus((s) => ({ ...s, ocr: 'ok' }));
+
+      // compute per-field matches directly from the freshly parsed raw OCR text
+      // (country is excluded: it's manually entered and rarely printed on the label)
+      const rawText = (parsed || {}).raw || '';
+      const { fm, matches, total } = computeFieldMatches(rawText, {
+        brand, typeDesignation, alcohol: alcoholContent, net: netContents, producer,
+      });
+      setFieldMatches(fm);
+      setAssessmentScore(total === 0 ? null : Math.round((matches / total) * 100));
+
+      const updates: Record<string, any> = {};
+      let anyFail = false;
+      ['brand','typeDesignation','alcohol','net','producer'].forEach(k => {
+        const v = fm[k];
+        if (v === 'no-input') updates[k] = 'idle';
+        else if (v === true) updates[k] = 'ok';
+        else { updates[k] = 'fail'; anyFail = true; }
+      });
+      setCheckStatus((s) => ({ ...s, ...updates }));
+
+      if (anyFail) {
+        setModalText('One or more fields did not match the image. Please review the parsed results or edit the inputs.');
+        setShowModal(true);
+      }
+    } catch (err) {
+      console.warn('OCR check failed', err);
+      setCheckStatus((s) => ({ ...s, ocr: 'fail' }));
+      setModalText('Text recognition failed.');
+      setShowModal(true);
+    } finally {
+      setRunningChecks(false);
+      setStep(2);
     }
   };
 
@@ -318,10 +622,21 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     const netMatch = joined.match(/(\d+(?:\.\d+)?)\s*(pint|pints)\b/i) || joined.match(/(\d+(?:\.\d+)?)\s*(mL|ml|l|L|litre|oz|fl oz)\b/i);
     if (netMatch) net = `${netMatch[1]} ${netMatch[2]}`;
 
-    // producer: common keywords
+    // producer: find the line with the brewed/bottled keyword, then pull in
+    // the following lines (name + address) until a stop marker is hit
     let producer = '';
-    const prodMatch = joined.match(/(?:brewed and bottled by|brewed and bottled|bottled by|brewed by|brewing co\.?|brewery|brewer)[^\n\.]*/i);
-    if (prodMatch) producer = prodMatch[0].replace(/^[:\-\s]+/, '').trim();
+    const prodKeyword = /(?:brewed and bottled by|brewed and bottled|bottled by|brewed by|brewing co\.?|brewery|brewer)/i;
+    const prodStop = /drink responsibly|government\s*warning|surgeon general/i;
+    const prodIdx = lines.findIndex(l => prodKeyword.test(l));
+    if (prodIdx !== -1) {
+      const prodLines = [lines[prodIdx]];
+      for (let i = prodIdx + 1; i < lines.length && prodLines.length < 3; i++) {
+        const l = lines[i];
+        if (prodStop.test(l)) break;
+        prodLines.push(l);
+      }
+      producer = prodLines.join(', ').replace(/^[:\-\s]+/, '').trim();
+    }
 
     // country (simple)
     const country = (joined.match(/\bmade in\b\s*([A-Za-z ]+)/i) || [null])[0] || '';
@@ -343,80 +658,197 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
 
   return (
     <form onSubmit={handleSubmit} className="form-split">
-      <div className="upload-area" style={{ position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver}>
-        {preview ? (
-          <ImageAnnotator ref={annotRef} src={preview} onRecognize={(blob) => runOpenCVOnBlob(blob)} />
-        ) : (
-          <div style={{ textAlign: "center" }}>
-            <div className="upload-drop">Drop an image here or</div>
-            <div style={{ marginTop: 8 }}>
-              <input ref={inputRef} type="file" accept="image/*" onChange={onFileChange} />
-            </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', justifyContent: step === 1 ? 'center' : 'flex-start', gridColumn: '1 / -1', width: '100%' }}>
+        <div style={{ flex: step === 1 ? '0 1 auto' : 1, minWidth: 320 }}>
+          {/* Image / upload panel (step 1) */}
+          <div style={{ position: 'relative', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {step === 1 && (
+              <div className="upload-area" style={{ position: 'relative', width: 'auto', maxWidth: 420, margin: '0 auto' }} onDrop={onDrop} onDragOver={onDragOver}>
+                {preview ? (
+                  <ImageAnnotator ref={annotRef} src={preview} onRecognize={(blob) => runOpenCVOnBlob(blob)} />
+                ) : (
+                  <div style={{ textAlign: "center" }}>
+                    <div className="upload-drop">Drop an image here or</div>
+                    <div style={{ marginTop: 8 }}>
+                        <input ref={inputRef} type="file" accept="image/*" onChange={onFileChange} />
+                    </div>
+                  </div>
+                )}
+                  <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                    <Button type="button" variant="secondary" onClick={() => { if (inputRef.current) inputRef.current.click(); }}>Upload file</Button>
+                  </div>
+                {ocrLoading && (
+                  <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', zIndex: 50 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                      <svg width="40" height="40" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="50" cy="50" r="35" stroke="#e6e6e6" strokeWidth="10" fill="none" />
+                        <path d="M50 15 a35 35 0 0 1 0 70" stroke="#0b5fff" strokeWidth="10" strokeLinecap="round" fill="none">
+                          <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="1s" repeatCount="indefinite" />
+                        </path>
+                      </svg>
+                      <div style={{ fontSize: 14, color: '#111' }}>Processing image…</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        )}
-        <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-          <Button type="button" variant="secondary" onClick={() => { if (inputRef.current) inputRef.current.click(); }}>Upload file</Button>
-          <Button type="button" variant="secondary" onClick={() => handleFile(null)}>Remove</Button>
         </div>
-        {ocrLoading && (
-          <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', zIndex: 50 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <svg width="40" height="40" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="50" cy="50" r="35" stroke="#e6e6e6" strokeWidth="10" fill="none" />
-                <path d="M50 15 a35 35 0 0 1 0 70" stroke="#0b5fff" strokeWidth="10" strokeLinecap="round" fill="none">
-                  <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="1s" repeatCount="indefinite" />
-                </path>
-              </svg>
-              <div style={{ fontSize: 14, color: '#111' }}>Processing image…</div>
-            </div>
+
+        {step !== 1 && (
+        <div style={{ flex: 1, minWidth: 320 }}>
+          {/* Text fields panel (step 0) */}
+          <div style={{ transition: 'all 280ms ease', minHeight: 220 }}>
+            {step === 0 && (
+              <div className="fields-area">
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                </div>
+
+                <div className="field-row">
+                  <label className="field-label">Brand name <span className="required-asterisk">*</span></label>
+                  <input required className="field-input" value={brand} onChange={(e) => setBrand(e.target.value)} />
+                </div>
+
+                <div className="field-row">
+                  <label className="field-label">Class / Type designation <span className="required-asterisk">*</span></label>
+                  <select required className="field-input" value={typeDesignation} onChange={(e) => setTypeDesignation(e.target.value)}>
+                    <option value="" disabled>Select a type…</option>
+                    <option value="Beer">Beer</option>
+                    <option value="Wine">Wine</option>
+                    <option value="Distilled Spirits">Distilled Spirits</option>
+                  </select>
+                </div>
+
+                <div className="field-row">
+                  <label className="field-label">Alcohol content <span className="required-asterisk">*</span></label>
+                  <input required className="field-input" value={alcoholContent} onChange={(e) => setAlcoholContent(e.target.value)} placeholder="e.g. 45% Alc./Vol." />
+                </div>
+
+                <div className="field-row">
+                  <label className="field-label">Net contents <span className="required-asterisk">*</span></label>
+                  <input required className="field-input" value={netContents} onChange={(e) => setNetContents(e.target.value)} placeholder="e.g. 750 mL" />
+                </div>
+
+                <div className="field-row">
+                  <label className="field-label">Name and address of bottler/producer <span className="required-asterisk">*</span></label>
+                  <input required className="field-input" value={producer} onChange={(e) => setProducer(e.target.value)} />
+                </div>
+
+                <div className="field-row">
+                  <label className="field-label">Country of origin (imports) <span className="required-asterisk">*</span></label>
+                  <input required className="field-input" value={country} onChange={(e) => setCountry(e.target.value)} />
+                </div>
+
+                {/* Navigation for the wizard lives below (Prev/Next) - submit/clear only shown on last step */}
+              </div>
+            )}
+
+            {/* Checklist panel (step 2) */}
+            {step === 2 && (
+              <div style={{ padding: 8 }}>
+                <h4 style={{ marginTop: 0 }}>Checks & Assessment</h4>
+                <ul style={{ listStyle: 'none', padding: 0 }}>
+                  <li style={{ marginBottom: 8 }}>
+                    <strong>Checking image quality:</strong>
+                    <div style={{ marginLeft: 10 }}>
+                      {(() => {
+                        const st = checkStatus['blurry'] ?? (isBlurry === null ? 'idle' : (isBlurry ? 'fail' : 'ok'));
+                        return (
+                          <div className="check-item">
+                            <span className={`status-icon ${st === 'idle' ? 'status-no' : (st === 'ok' ? 'status-true' : (st === 'running' ? 'status-no' : 'status-false'))}`}>
+                              {st === 'running' ? (
+                                <svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" strokeOpacity="0.3" fill="none"/><path d="M22 12a10 10 0 0 1-10 10" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></path></svg>
+                              ) : (st === 'ok' ? '✓' : (st === 'fail' ? '✖' : '–'))}
+                            </span>
+                            <strong>Blurry photo:</strong> {st === 'idle' ? 'Not analyzed' : (st === 'running' ? 'Analyzing…' : (st === 'fail' ? 'Likely blurry' : 'Looks sharp'))}
+                          </div>
+                        );
+                      })()}
+
+                      {(() => {
+                        const st = checkStatus['flash'] ?? (hasFlash === null ? 'idle' : (hasFlash ? 'fail' : 'ok'));
+                        return (
+                          <div className="check-item">
+                            <span className={`status-icon ${st === 'idle' ? 'status-no' : (st === 'ok' ? 'status-true' : (st === 'running' ? 'status-no' : 'status-false'))}`}>
+                              {st === 'running' ? (
+                                <svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" strokeOpacity="0.3" fill="none"/><path d="M22 12a10 10 0 0 1-10 10" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></path></svg>
+                              ) : (st === 'ok' ? '✓' : (st === 'fail' ? '✖' : '–'))}
+                            </span>
+                            <strong>Flash detected:</strong> {st === 'idle' ? 'Not analyzed' : (st === 'running' ? 'Analyzing…' : (st === 'fail' ? 'Flash / bright highlights present' : 'No obvious flash'))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </li>
+
+                  <li style={{ marginBottom: 8 }}>
+                    <strong>Checking fields:</strong>
+                    <div style={{ marginLeft: 10 }}>
+                      {['brand','typeDesignation','alcohol','net','producer'].map((k) => {
+                        const running = checkStatus[k] === 'running';
+                        const status = checkStatus[k] ?? (fieldMatches[k] === 'no-input' ? 'idle' : (fieldMatches[k] === true ? 'ok' : (fieldMatches[k] === false ? 'fail' : 'idle')));
+                        const label = k === 'net' ? 'Net contents' : (k === 'alcohol' ? 'Alcohol content' : (k === 'typeDesignation' ? 'Class / Type designation' : (k === 'brand' ? 'Brand name' : 'Producer')));
+                        const statusText = status === 'idle' ? 'No input / no OCR' : (status === 'ok' ? 'Matched' : (status === 'running' ? 'Analyzing…' : 'Not matched'));
+                        const cls = status === 'idle' ? 'status-no' : (status === 'ok' ? 'status-true' : 'status-false');
+                        const icon = status === 'idle' ? '–' : (status === 'ok' ? '✓' : '✖');
+                        return (
+                          <div className="check-item" key={k}>
+                            <span className={`status-icon ${cls}`}>
+                              {running ? (
+                                <svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" strokeOpacity="0.3" fill="none"/><path d="M22 12a10 10 0 0 1-10 10" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></path></svg>
+                              ) : icon}
+                            </span>
+                            <strong>{label}:</strong> {statusText}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </li>
+
+                  <li style={{ marginBottom: 8 }}>
+                    <strong>Government Health Warning Present:</strong> {parsedFields?.warning ? 'Yes' : 'No'}
+                  </li>
+
+                  <li style={{ marginBottom: 8 }}>
+                    <strong>Overall assessment score:</strong> {assessing ? 'Assessing…' : (assessmentScore === null ? 'N/A' : `${assessmentScore}%`)}
+                  </li>
+                </ul>
+              </div>
+            )}
+
+            {/* Wizard navigation moved to bottom bar */}
           </div>
+        </div>
         )}
       </div>
-
-      <div className="fields-area">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        </div>
-
-        <div className="field-row">
-          <label className="field-label">Brand name</label>
-          <input className="field-input" value={brand} onChange={(e) => setBrand(e.target.value)} />
-        </div>
-
-        <div className="field-row">
-          <label className="field-label">Class / Type designation</label>
-          <input className="field-input" value={typeDesignation} onChange={(e) => setTypeDesignation(e.target.value)} />
-        </div>
-
-        <div className="field-row">
-          <label className="field-label">Alcohol content</label>
-          <input className="field-input" value={alcoholContent} onChange={(e) => setAlcoholContent(e.target.value)} placeholder="e.g. 45% Alc./Vol." />
-        </div>
-
-        <div className="field-row">
-          <label className="field-label">Net contents</label>
-          <input className="field-input" value={netContents} onChange={(e) => setNetContents(e.target.value)} placeholder="e.g. 750 mL" />
-        </div>
-
-        <div className="field-row">
-          <label className="field-label">Name and address of bottler/producer</label>
-          <input className="field-input" value={producer} onChange={(e) => setProducer(e.target.value)} />
-        </div>
-
-        <div className="field-row">
-          <label className="field-label">Country of origin (imports)</label>
-          <input className="field-input" value={country} onChange={(e) => setCountry(e.target.value)} />
-        </div>
-
-        <div className="field-row">
-          <label className="field-label">Government Health Warning Statement</label>
-          <textarea className="field-input" style={{ minHeight: 80 }} value={warning} onChange={(e) => setWarning(e.target.value)} />
-        </div>
-
-        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-          <Button type="submit">Save / Submit</Button>
-          <Button type="button" variant="secondary" onClick={clear}>Clear</Button>
+      {/* Bottom navigation centered beneath component */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14, gridColumn: '1 / -1', width: '100%' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
+          <Button type="button" variant="secondary" onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }} disabled={step === 0}>Previous</Button>
+          {step === 2 ? (
+            <Button type="submit" disabled={Object.values(checkStatus || {}).some(v => v === 'fail') || isBlurry === true || hasFlash === true}>Save / Submit</Button>
+          ) : (
+            <Button
+              type="button"
+              onClick={(e) => { e.preventDefault(); if (step === 1) runAllChecks(); else setStep((s) => Math.min(2, s + 1)); }}
+              disabled={(step === 0 && !allFieldsFilled) || (step === 1 && runningChecks)}
+            >
+              {runningChecks ? 'Analyzing…' : 'Next'}
+            </Button>
+          )}
         </div>
       </div>
+      {showModal && (
+        <Modal onClose={() => setShowModal(false)}>
+          <div style={{ padding: 8 }}>
+            <h3 style={{ marginTop: 0 }}>Image Quality Warning</h3>
+            <p style={{ color: '#333' }}>{modalText}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>Close</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </form>
   );
 }

@@ -3,10 +3,10 @@ export async function loadOpenCV(): Promise<any> {
   const win: any = typeof window !== 'undefined' ? window : {};
   if (win.cv) return win.cv;
 
-  // Create script tag to load OpenCV.js from CDN
+  // Create script tag to load OpenCV.js from local bundle served under /public/libs
   await new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://docs.opencv.org/4.x/opencv.js';
+    script.src = '/libs/opencv.js';
     script.async = true;
     script.onload = () => {
       // Wait for the runtime to initialize

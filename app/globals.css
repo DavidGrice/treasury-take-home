@@ -135,7 +135,20 @@ body {
 .fields-area { display:flex; flex-direction:column; gap:10px; }
 .field-row { display:flex; flex-direction:column; gap:6px; }
 .field-label { font-size:13px; color:#333; }
+.required-asterisk { color: #ef4444; margin-left: 6px; font-weight: 700; font-size: 0.95em; }
 .field-input { padding:8px; border-radius:6px; border:1px solid #ddd; }
+
+/* Checklist/status styling */
+.check-item { transition: all 220ms ease; padding: 6px 0; }
+.status-icon { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; margin-right: 8px; border-radius: 4px; font-size: 12px; color: white; }
+.status-true { background: #16a34a; }
+.status-false { background: #ef4444; }
+.status-no { background: #9ca3af; }
+
+/* Smooth panel transitions */
+.panel-fade { transition: transform 260ms ease, opacity 260ms ease; }
+.panel-fade-enter { transform: translateY(6px); opacity: 0; }
+.panel-fade-enter-active { transform: translateY(0); opacity: 1; }
 
 /* Modal styles */
 .modal-overlay {
