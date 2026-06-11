@@ -19,6 +19,8 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
   const [fieldMatches, setFieldMatches] = useState<Record<string, boolean | 'no-input'>>({});
   const [showModal, setShowModal] = useState(false);
   const [modalText, setModalText] = useState('');
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [analysisComplete, setAnalysisComplete] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const annotRef = useRef<any>(null);
   const [step, setStep] = useState<number>(0); // 0: text, 1: image, 2: checklist
@@ -32,6 +34,11 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     if (f) {
       const url = URL.createObjectURL(f);
       setPreview(url);
+      // replacing the photo invalidates any previous analysis results
+      setIsBlurry(null);
+      setHasFlash(null);
+      setCheckStatus({});
+      setAnalysisComplete(false);
       // preview only; analysis will run when user clicks Next from the image step
     }
     else setPreview(null);
@@ -66,13 +73,9 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const hasBlockingFailure = Object.values(checkStatus || {}).some(v => v === 'fail') || isBlurry === true || hasFlash === true;
-    if (hasBlockingFailure) {
-      setModalText('Cannot submit: image fails quality checks or fields did not match. All images must be clear and free of blur or flash.');
-      setShowModal(true);
-      return;
-    }
+  };
 
+  const submitForm = async () => {
     const id = crypto.randomUUID();
     const formData = new FormData();
     formData.append("id", id);
@@ -82,7 +85,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     formData.append("netContents", netContents);
     formData.append("producer", producer);
     formData.append("country", country);
-    formData.append("warning", parsedFields?.warning || '');
+    formData.append("warning", checkStatus['warningPresent'] === 'ok' ? 'Yes' : 'No');
     formData.append("assessmentScore", assessmentScore === null ? '' : String(assessmentScore));
     if (file) formData.append("file", file);
 
@@ -482,8 +485,9 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
   const runAllChecks = async () => {
     if (!file) return alert('Please upload an image first');
     setRunningChecks(true);
+    setAnalysisComplete(false);
     // reset statuses
-    const initial: Record<string, any> = { blurry: 'running', flash: 'running', ocr: 'idle' };
+    const initial: Record<string, any> = { blurry: 'running', flash: 'running', ocr: 'idle', surgeonGeneral: 'idle', warningPresent: 'idle' };
     ['brand','typeDesignation','alcohol','net','producer'].forEach(k => initial[k] = 'idle');
     setCheckStatus(initial);
     addLog('runAllChecks: started');
@@ -502,6 +506,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
         setModalText('Warning: Image appears blurry. All images must be clear and free of blur.');
         setShowModal(true);
         setRunningChecks(false);
+        setAnalysisComplete(true);
         return;
       }
 
@@ -515,6 +520,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
         setModalText('Warning: Flash or extreme highlights detected. All images must be free of flash.');
         setShowModal(true);
         setRunningChecks(false);
+        setAnalysisComplete(true);
         return;
       }
     } catch (err) {
@@ -523,6 +529,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
       setModalText('Image quality analysis failed');
       setShowModal(true);
       setRunningChecks(false);
+      setAnalysisComplete(true);
       return;
     }
 
@@ -556,6 +563,18 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
         else if (v === true) updates[k] = 'ok';
         else { updates[k] = 'fail'; anyFail = true; }
       });
+
+      // "Surgeon General" must appear exactly as written; common OCR misspellings
+      // (e.g. "Surgeon Genreal") indicate the printed text itself is non-compliant
+      const sgExact = /surgeon general/i.test(rawText);
+      if (sgExact) updates.surgeonGeneral = 'ok';
+      else { updates.surgeonGeneral = 'fail'; anyFail = true; }
+
+      // "GOVERNMENT WARNING" must appear exactly as written on the label
+      const gwExact = /government warning/i.test(rawText);
+      if (gwExact) updates.warningPresent = 'ok';
+      else { updates.warningPresent = 'fail'; anyFail = true; }
+
       setCheckStatus((s) => ({ ...s, ...updates }));
 
       if (anyFail) {
@@ -569,6 +588,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
       setShowModal(true);
     } finally {
       setRunningChecks(false);
+      setAnalysisComplete(true);
       setStep(2);
     }
   };
@@ -580,11 +600,13 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     const sorted = [...ocrResults].sort((a, b) => (a.rect.y - b.rect.y) || (a.rect.x - b.rect.x));
     const joined = sorted.map(r => r.text.replace(/[\u2018\u2019\u201C\u201D]/g, '"')).join('\n').replace(/\s+\n/g,'\n');
 
-    // keep raw for debugging
-    const raw = joined;
-
     // split into lines and normalize characters likely from OCR noise
-    const lines = joined.split(/\r?\n/).map(l => l.replace(/["“”‘’\|\\/\_\*\u201A\u201E]/g, ' ').replace(/[^\x00-\x7F]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const lines = joined.split(/\r?\n/)
+      .map(l => l.replace(/["“”‘’\|\\/\_\*‚„{}\[\]<>~^@#]/g, ' ').replace(/[^\x00-\x7F]/g, ' ').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .filter(l => /[A-Za-z0-9]{2,}/.test(l));
+
+    const raw = lines.join('\n');
 
     // detect potential warning start (may be split across lines)
     let warningIdx = -1;
@@ -628,24 +650,51 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     const prodKeyword = /(?:brewed and bottled by|brewed and bottled|bottled by|brewed by|brewing co\.?|brewery|brewer)/i;
     const prodStop = /drink responsibly|government\s*warning|surgeon general/i;
     const prodIdx = lines.findIndex(l => prodKeyword.test(l));
+    const prodLineIndices = new Set<number>();
     if (prodIdx !== -1) {
       const prodLines = [lines[prodIdx]];
+      prodLineIndices.add(prodIdx);
       for (let i = prodIdx + 1; i < lines.length && prodLines.length < 3; i++) {
         const l = lines[i];
         if (prodStop.test(l)) break;
         prodLines.push(l);
+        prodLineIndices.add(i);
       }
       producer = prodLines.join(', ').replace(/^[:\-\s]+/, '').trim();
     }
 
-    // country (simple)
-    const country = (joined.match(/\bmade in\b\s*([A-Za-z ]+)/i) || [null])[0] || '';
+    // country: capture just the country name after 'made in'; fall back to USA when
+    // US federal label markers (TTB tax classification / health warning) are present
+    let country = (joined.match(/\bmade in\s+([A-Za-z]{2,}(?:\s+[A-Za-z]{2,})?)/i) || [])[1] || '';
+    if (!country) {
+      const usMarkers = /internal revenue|surgeon general|government\s*warning|alcohol by volume|\btaxable\b/i;
+      if (usMarkers.test(joined)) country = 'USA';
+    }
 
-    // brand: prefer first non-warning short line that isn't producer/alcohol/net
+    // brand: prefer first non-warning short line that isn't producer/alcohol/net/legal boilerplate
     let brand = '';
-    for (const l of nonWarningLines) {
-      if (/government warning|surgeon general|drink responsibly|contains less than|%|ml|pint|bottled by|brewed by|brewery|brew/gi.test(l)) continue;
-      if (l.length > 2 && l.length < 40) { brand = l.replace(/[^A-Za-z0-9 &\-\.]/g, '').trim(); break; }
+    const brandSkip = /government warning|surgeon general|drink responsibly|contains less than|%|ml|pint|bottled by|brewed by|brewery|brew|under|section|taxable|federal|internal revenue|\btax\b|\bco\.?$|alc.*hol|volume|malt beverage/i;
+    for (let i = 0; i < nonWarningLines.length; i++) {
+      if (prodLineIndices.has(i)) continue;
+      const l = nonWarningLines[i];
+      if (brandSkip.test(l)) continue;
+      if (/:$/.test(l)) continue; // skip section-header style lines ending in ':'
+      const cleaned = l.replace(/[^A-Za-z0-9 &\-\.]/g, '').trim();
+      if (cleaned.length <= 2 || cleaned.length >= 40) continue;
+      const words = cleaned.split(/\s+/).filter(w => /^[A-Za-z]{2,}$/.test(w));
+      const letterCount = (l.match(/[A-Za-z]/g) || []).length;
+      const letterRatio = letterCount / l.length;
+      // require either a multi-word phrase, or a single longer word from a mostly-alphabetic line
+      const looksLikeName = words.length >= 2 || (words.length === 1 && words[0].length >= 4 && letterRatio >= 0.6);
+      if (looksLikeName) { brand = cleaned; break; }
+    }
+    // fall back to the producer's company name (brand often matches the brewery/winery name)
+    if (!brand && prodIdx !== -1) {
+      const prodNameLine = lines[prodIdx]
+        .replace(/[^A-Za-z0-9 &\-\.]/g, '')
+        .replace(/^[-\s]+|[-\s]+$/g, '')
+        .trim();
+      if (prodNameLine.length > 2) brand = prodNameLine;
     }
     if (!brand && nonWarningLines[0]) brand = nonWarningLines[0].replace(/[^A-Za-z0-9 &\-\.]/g, '').trim();
 
@@ -658,24 +707,24 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
 
   return (
     <form onSubmit={handleSubmit} className="form-split">
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', justifyContent: step === 1 ? 'center' : 'flex-start', gridColumn: '1 / -1', width: '100%' }}>
-        <div style={{ flex: step === 1 ? '0 1 auto' : 1, minWidth: 320 }}>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', justifyContent: step === 1 ? 'center' : (step === 0 ? 'center' : 'flex-start'), gridColumn: '1 / -1', width: '100%' }}>
+        {step === 1 && (
+        <div style={{ flex: '0 1 auto', minWidth: 320 }}>
           {/* Image / upload panel (step 1) */}
           <div style={{ position: 'relative', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {step === 1 && (
               <div className="upload-area" style={{ position: 'relative', width: 'auto', maxWidth: 420, margin: '0 auto' }} onDrop={onDrop} onDragOver={onDragOver}>
                 {preview ? (
                   <ImageAnnotator ref={annotRef} src={preview} onRecognize={(blob) => runOpenCVOnBlob(blob)} />
                 ) : (
                   <div style={{ textAlign: "center" }}>
                     <div className="upload-drop">Drop an image here or</div>
-                    <div style={{ marginTop: 8 }}>
-                        <input ref={inputRef} type="file" accept="image/*" onChange={onFileChange} />
-                    </div>
                   </div>
                 )}
+                  <input ref={inputRef} type="file" accept="image/*" onChange={onFileChange} style={preview ? { display: 'none' } : { marginTop: 8 }} />
                   <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-                    <Button type="button" variant="secondary" onClick={() => { if (inputRef.current) inputRef.current.click(); }}>Upload file</Button>
+                    <Button type="button" variant="secondary" onClick={() => { if (inputRef.current) inputRef.current.click(); }}>
+                      {preview ? 'Replace photo' : 'Upload file'}
+                    </Button>
                   </div>
                 {ocrLoading && (
                   <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', zIndex: 50 }}>
@@ -691,16 +740,18 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
                   </div>
                 )}
               </div>
-            )}
           </div>
         </div>
+        )}
 
         {step !== 1 && (
-        <div style={{ flex: 1, minWidth: 320 }}>
+        <div style={{ flex: step === 0 ? '0 1 480px' : 1, minWidth: 320 }}>
           {/* Text fields panel (step 0) */}
           <div style={{ transition: 'all 280ms ease', minHeight: 220 }}>
             {step === 0 && (
               <div className="fields-area">
+                <h3 style={{ margin: '0 0 8px', fontSize: 26, fontWeight: 700, color: '#000', textAlign: 'center' }}>Label Information</h3>
+
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 </div>
 
@@ -714,6 +765,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
                   <select required className="field-input" value={typeDesignation} onChange={(e) => setTypeDesignation(e.target.value)}>
                     <option value="" disabled>Select a type…</option>
                     <option value="Beer">Beer</option>
+                    <option value="Malt Beverage">Malt Beverage</option>
                     <option value="Wine">Wine</option>
                     <option value="Distilled Spirits">Distilled Spirits</option>
                   </select>
@@ -806,7 +858,53 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
                   </li>
 
                   <li style={{ marginBottom: 8 }}>
-                    <strong>Government Health Warning Present:</strong> {parsedFields?.warning ? 'Yes' : 'No'}
+                    <strong>Government Health Warning Present:</strong>
+                    <div style={{ marginLeft: 10 }}>
+                      {(() => {
+                        const st = checkStatus['warningPresent'] ?? 'idle';
+                        const statusText = st === 'idle'
+                          ? 'Not analyzed'
+                          : (st === 'running'
+                            ? 'Analyzing…'
+                            : (st === 'ok' ? 'Reads exactly "GOVERNMENT WARNING"' : 'Missing or misspelled - must read exactly "GOVERNMENT WARNING"'));
+                        const cls = st === 'idle' ? 'status-no' : (st === 'ok' ? 'status-true' : (st === 'running' ? 'status-no' : 'status-false'));
+                        return (
+                          <div className="check-item">
+                            <span className={`status-icon ${cls}`}>
+                              {st === 'running' ? (
+                                <svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" strokeOpacity="0.3" fill="none"/><path d="M22 12a10 10 0 0 1-10 10" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></path></svg>
+                              ) : (st === 'idle' ? '–' : (st === 'ok' ? '✓' : '✖'))}
+                            </span>
+                            {statusText}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </li>
+
+                  <li style={{ marginBottom: 8 }}>
+                    <strong>Surgeon General text:</strong>
+                    <div style={{ marginLeft: 10 }}>
+                      {(() => {
+                        const st = checkStatus['surgeonGeneral'] ?? 'idle';
+                        const statusText = st === 'idle'
+                          ? 'Not analyzed'
+                          : (st === 'running'
+                            ? 'Analyzing…'
+                            : (st === 'ok' ? 'Reads exactly "Surgeon General"' : 'Missing or misspelled - must read exactly "Surgeon General"'));
+                        const cls = st === 'idle' ? 'status-no' : (st === 'ok' ? 'status-true' : (st === 'running' ? 'status-no' : 'status-false'));
+                        return (
+                          <div className="check-item">
+                            <span className={`status-icon ${cls}`}>
+                              {st === 'running' ? (
+                                <svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" strokeOpacity="0.3" fill="none"/><path d="M22 12a10 10 0 0 1-10 10" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></path></svg>
+                              ) : (st === 'idle' ? '–' : (st === 'ok' ? '✓' : '✖'))}
+                            </span>
+                            {statusText}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </li>
 
                   <li style={{ marginBottom: 8 }}>
@@ -826,11 +924,26 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
           <Button type="button" variant="secondary" onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }} disabled={step === 0}>Previous</Button>
           {step === 2 ? (
-            <Button type="submit" disabled={Object.values(checkStatus || {}).some(v => v === 'fail') || isBlurry === true || hasFlash === true}>Save / Submit</Button>
+            <Button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                setShowConfirmModal(true);
+              }}
+              disabled={!analysisComplete || runningChecks || isBlurry === true || hasFlash === true}
+            >
+              Save / Submit
+            </Button>
           ) : (
             <Button
               type="button"
-              onClick={(e) => { e.preventDefault(); if (step === 1) runAllChecks(); else setStep((s) => Math.min(2, s + 1)); }}
+              onClick={(e) => {
+                e.preventDefault();
+                if (step === 0) {
+                  console.log('View 1 input fields:', { brand, typeDesignation, alcoholContent, netContents, producer, country });
+                }
+                if (step === 1) runAllChecks(); else setStep((s) => Math.min(2, s + 1));
+              }}
               disabled={(step === 0 && !allFieldsFilled) || (step === 1 && runningChecks)}
             >
               {runningChecks ? 'Analyzing…' : 'Next'}
@@ -845,6 +958,18 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
             <p style={{ color: '#333' }}>{modalText}</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
               <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>Close</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {showConfirmModal && (
+        <Modal onClose={() => setShowConfirmModal(false)}>
+          <div style={{ padding: 8 }}>
+            <h3 style={{ marginTop: 0, fontWeight: 'bold' }}>Confirm Submission</h3>
+            <p style={{ color: '#333' }}>By clicking "Submit", you confirm that all information provided is accurate and complete. Any items which have mismatched or missing information may result in the application being rejected.</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <Button type="button" variant="secondary" onClick={() => setShowConfirmModal(false)}>Decline</Button>
+              <Button type="button" onClick={() => { setShowConfirmModal(false); submitForm(); }}>Submit</Button>
             </div>
           </div>
         </Modal>

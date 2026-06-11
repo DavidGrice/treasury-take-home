@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import DashboardBox from "../../../components/ui/DashboardBox";
 import UploadForm from "../../../components/ui/UploadForm";
 import Button from "../../../components/ui/Button";
 import Modal from "../../../components/ui/Modal";
 
 export default function ClientDashboardPage() {
+  const router = useRouter();
   const [showUpload, setShowUpload] = useState(false);
   const [forms, setForms] = useState<any[]>([]);
 
@@ -23,7 +25,12 @@ export default function ClientDashboardPage() {
   };
 
   return (
-    <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+    <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div style={{ width: "100%", maxWidth: 900, display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <Button variant="secondary" onClick={() => router.push("/auth")}>
+          ⏻ Logout
+        </Button>
+      </div>
       <DashboardBox
         topLeft={<div><strong style={{fontSize:20}}>Submitted</strong><div style={{fontSize:24, color:'#666'}}>{forms.length}</div></div>}
         topCenter={<div><strong style={{fontSize:20}}>Accepted</strong><div style={{fontSize:24, color:'#666'}}>0</div></div>}
@@ -32,14 +39,15 @@ export default function ClientDashboardPage() {
         <div>
           
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}>
+          <div style={{ maxHeight: 320, overflowY: 'auto', marginTop: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid #eee' }}>
-                <th style={{ padding: '8px 6px' }}>ID</th>
-                <th style={{ padding: '8px 6px' }}>Brand</th>
-                <th style={{ padding: '8px 6px' }}>Status</th>
-                <th style={{ padding: '8px 6px' }}>Score</th>
-                <th style={{ padding: '8px 6px' }}>Submitted Date</th>
+                <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}>ID</th>
+                <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}>Brand</th>
+                <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}>Status</th>
+                <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}>Score</th>
+                <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}>Submitted Date</th>
               </tr>
             </thead>
             <tbody>
@@ -60,6 +68,7 @@ export default function ClientDashboardPage() {
               )}
             </tbody>
           </table>
+          </div>
 
           <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
             <Button onClick={() => setShowUpload(true)}>Upload Form</Button>
