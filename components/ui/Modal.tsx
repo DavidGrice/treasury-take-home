@@ -5,9 +5,10 @@ import ReactDOM from "react-dom";
 type Props = {
   children: React.ReactNode;
   onClose?: () => void;
+  className?: string;
 };
 
-export default function Modal({ children, onClose }: Props) {
+export default function Modal({ children, onClose, className }: Props) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -19,7 +20,7 @@ export default function Modal({ children, onClose }: Props) {
 
   return ReactDOM.createPortal(
     <div className="modal-overlay">
-      <div className="modal-content">
+      <div className={`modal-content ${className || ""}`.trim()}>
         <button className="modal-close" aria-label="Close" onClick={onClose}>
           ×
         </button>

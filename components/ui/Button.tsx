@@ -8,9 +8,10 @@ type ButtonProps = {
   type?: "button" | "submit" | "reset";
   disabled?: boolean;
   className?: string;
+  style?: React.CSSProperties;
 };
 
-export default function Button({ children, variant = "primary", onClick, type = "button", disabled = false, className = "" }: ButtonProps) {
+export default function Button({ children, variant = "primary", onClick, type = "button", disabled = false, className = "", style: styleOverride }: ButtonProps) {
   const primaryStyle = {
     background: "#0b5fff",
     color: "white",
@@ -29,10 +30,11 @@ export default function Button({ children, variant = "primary", onClick, type = 
     cursor: disabled ? "default" : "pointer",
     fontWeight: 600,
     ...((variant === "primary") ? primaryStyle : secondaryStyle),
+    ...styleOverride,
   };
 
   return (
-    <button type={type} onClick={onClick} disabled={disabled} style={style} className={className}>
+    <button type={type} onClick={onClick} disabled={disabled} style={style} className={`btn ${className}`.trim()}>
       {children}
     </button>
   );

@@ -3,70 +3,7 @@ import { put } from "@vercel/blob";
 import { sql } from "@vercel/postgres";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
-
-// extra Class/Type-specific label fields (see UploadForm.tsx TYPE_FIELD_CONFIG)
-const EXTRA_FIELD_COLUMNS = [
-  "is_imported",
-  "age_statement",
-  "color_disclosure",
-  "sulfite_aspartame",
-  "sulfite_declaration",
-  "commodity_statement",
-  "appellation_of_origin",
-  "percentage_foreign_wine",
-  "alcohol_unit",
-  "net_contents_unit",
-  "net_contents_secondary",
-];
-
-async function ensureTable() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS submissions (
-      id UUID PRIMARY KEY,
-      brand TEXT,
-      type_designation TEXT,
-      alcohol_content TEXT,
-      net_contents TEXT,
-      producer TEXT,
-      country TEXT,
-      warning TEXT,
-      assessment_score INTEGER,
-      image_url TEXT,
-      status TEXT NOT NULL DEFAULT 'Submitted',
-      submitted_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-
-  for (const col of EXTRA_FIELD_COLUMNS) {
-    await sql.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS ${col} TEXT`);
-  }
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS assessments (
-      submission_id UUID PRIMARY KEY REFERENCES submissions(id),
-      blurry BOOLEAN,
-      flash BOOLEAN,
-      warning_present BOOLEAN,
-      surgeon_general BOOLEAN,
-      ocr_confidence INTEGER,
-      assessment_score INTEGER,
-      field_matches JSONB,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-}
-
-const SUBMISSION_WITH_ASSESSMENT_SELECT = `
-  SELECT s.*,
-    a.blurry AS assessment_blurry,
-    a.flash AS assessment_flash,
-    a.warning_present AS assessment_warning_present,
-    a.surgeon_general AS assessment_surgeon_general,
-    a.ocr_confidence AS assessment_ocr_confidence,
-    a.field_matches AS assessment_field_matches
-  FROM submissions s
-  LEFT JOIN assessments a ON a.submission_id = s.id
-`;
+import { ensureTable, SUBMISSION_WITH_ASSESSMENT_SELECT, generateSubmissionId, assignReviewer } from "./db";
 
 export async function GET() {
   await ensureTable();
@@ -78,7 +15,8 @@ export async function POST(request: NextRequest) {
   await ensureTable();
 
   const form = await request.formData();
-  const id = String(form.get("id") || crypto.randomUUID());
+  const id = String(form.get("id") || generateSubmissionId());
+  const assignedTo = assignReviewer();
   const brand = String(form.get("brand") || "");
   const typeDesignation = String(form.get("typeDesignation") || "");
   const alcoholContent = String(form.get("alcoholContent") || "");
@@ -143,13 +81,13 @@ export async function POST(request: NextRequest) {
       producer, country, warning, assessment_score, image_url,
       is_imported, age_statement, color_disclosure, sulfite_aspartame,
       sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine,
-      alcohol_unit, net_contents_unit, net_contents_secondary
+      alcohol_unit, net_contents_unit, net_contents_secondary, assigned_to
     ) VALUES (
       ${id}, ${brand}, ${typeDesignation}, ${alcoholContent}, ${netContents},
       ${producer}, ${country}, ${warning}, ${assessmentScore}, ${imageUrl},
       ${isImported}, ${ageStatement}, ${colorDisclosure}, ${sulfiteAspartame},
       ${sulfiteDeclaration}, ${commodityStatement}, ${appellationOfOrigin}, ${percentageForeignWine},
-      ${alcoholUnit}, ${netContentsUnit}, ${netContentsSecondary}
+      ${alcoholUnit}, ${netContentsUnit}, ${netContentsSecondary}, ${assignedTo}
     )
   `;
 

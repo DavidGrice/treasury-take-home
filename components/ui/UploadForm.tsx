@@ -1,13 +1,13 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
 import Button from "./Button";
+import SecondaryButton from "./SecondaryButton";
 import ImageAnnotator from "./ImageAnnotator";
 import Modal from "./Modal";
 import SearchableSelect from "./SearchableSelect";
 import { COUNTRIES } from "./countries";
-import wineChecklist from "../../api/wine_checklist_information.json";
-import maltBeverageChecklist from "../../api/malt_beverage_checklist_information.json";
-import distilledSpiritsChecklist from "../../api/distilled_spirits_checklist_information.json";
+import { ChecklistItem, getChecklistItems } from "./checklistData";
+import SectionTitle from "./SectionTitle";
 
 const TYPE_DESIGNATIONS = ["Malt Beverage", "Wine", "Distilled Spirits"];
 
@@ -71,70 +71,6 @@ function validateNetContents(value: string, unit: string, secondary: string): st
   return null;
 }
 
-type ChecklistItem = {
-  mandatory_item_name: string;
-  description: string;
-  regulatory_citation: string;
-  link_to_citation: string[];
-};
-
-// per-Class/Type reference data (TTB mandatory labeling information), keyed
-// to match TYPE_DESIGNATIONS above
-const CHECKLIST_DATA: Record<string, ChecklistItem[]> = {
-  Wine: wineChecklist,
-  'Malt Beverage': maltBeverageChecklist,
-  Beer: maltBeverageChecklist,
-  'Distilled Spirits': distilledSpiritsChecklist,
-};
-
-// maps each form field to the corresponding mandatory_item_name entry/entries
-// in CHECKLIST_DATA for the current Class/Type designation
-const CHECKLIST_FIELD_MAP: Record<string, Record<string, string[]>> = {
-  Wine: {
-    brand: ['Brand Name'],
-    typeDesignation: ['Designation Class/Type or Statement of Composition'],
-    alcoholContent: ['Alcohol Content'],
-    netContents: ['Net Contents'],
-    producer: ['Name and Address'],
-    country: ['Country of Origin (imported products only)'],
-    colorDisclosure: ['FD&C Yellow No. 5 Declaration', 'Cochineal Extract or Carmine Declaration'],
-    sulfiteDeclaration: ['Sulfite Declaration'],
-    appellationOfOrigin: ['Appellation of Origin'],
-    percentageForeignWine: ['Percentage of Foreign Wine'],
-  },
-  'Malt Beverage': {
-    brand: ['Brand Name'],
-    typeDesignation: ['Designation Class/Type', 'Other Designation (Distinctive or Fanciful Name with Statement of Composition)'],
-    alcoholContent: ['Alcohol Content (alc. % by volume)', 'Alcohol by Weight'],
-    netContents: ['Net Contents'],
-    producer: ['Name and Address (domestic, wholly fermented in US)', 'Name and Address (imported products only)'],
-    country: ['Country of Origin (imported products only)'],
-    colorDisclosure: ['FD&C Yellow No. 5 Declaration', 'Cochineal Extract or Carmine Declaration'],
-    sulfiteAspartame: ['Sulfite Declaration', 'Aspartame Declaration'],
-  },
-  'Distilled Spirits': {
-    brand: ['Brand Name'],
-    typeDesignation: ['Designation Class/Type or Distinctive/Fanciful Name with Statement of Composition'],
-    alcoholContent: ['Alcohol Content'],
-    netContents: ['Net Contents'],
-    producer: ['Name and Address (domestic/imported as applicable)'],
-    country: ['Country of Origin (imported products only)'],
-    ageStatement: ['Statement of Age'],
-    colorDisclosure: ['Presence of Coloring Materials', 'FD&C Yellow No. 5 Declaration', 'Cochineal Extract or Carmine Declaration'],
-    commodityStatement: ['Commodity Statements (Presence of Neutral Spirits / Commodity of Distillation)', 'State of Distillation'],
-  },
-};
-CHECKLIST_FIELD_MAP.Beer = CHECKLIST_FIELD_MAP['Malt Beverage'];
-
-const getChecklistItems = (typeDesignation: string, fieldKey: string): ChecklistItem[] => {
-  const data = CHECKLIST_DATA[typeDesignation];
-  const names = CHECKLIST_FIELD_MAP[typeDesignation]?.[fieldKey];
-  if (!data || !names) return [];
-  return names
-    .map((name) => data.find((item) => item.mandatory_item_name === name))
-    .filter((item): item is ChecklistItem => !!item);
-};
-
 // small "(i)" button shown next to a field label; opens a modal with the
 // regulatory citation/description for that field, if any is available for
 // the currently selected Class/Type designation
@@ -172,7 +108,7 @@ const TYPE_FIELD_CONFIG: Record<string, { required: string[]; applicable: string
   Beer: { required: [], applicable: ['colorDisclosure', 'sulfiteAspartame'] },
   'Malt Beverage': { required: [], applicable: ['colorDisclosure', 'sulfiteAspartame'] },
   'Distilled Spirits': { required: ['ageStatement'], applicable: ['colorDisclosure', 'commodityStatement'] },
-  Wine: { required: ['sulfiteDeclaration'], applicable: ['colorDisclosure', 'appellationOfOrigin', 'percentageForeignWine'] },
+  Wine: { required: [], applicable: ['sulfiteDeclaration', 'colorDisclosure', 'appellationOfOrigin', 'percentageForeignWine'] },
 };
 
 const EXTRA_FIELD_META: Record<string, { label: string; placeholder?: string }> = {
@@ -360,9 +296,8 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
   };
 
   const submitForm = async () => {
-    const id = crypto.randomUUID();
+    // server assigns a TTB-style numeric ID
     const formData = new FormData();
-    formData.append("id", id);
     formData.append("brand", brand);
     formData.append("typeDesignation", typeDesignation);
     formData.append("alcoholContent", alcoholContent);
@@ -1075,7 +1010,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
         <div style={{ flex: '0 1 auto', minWidth: 320, position: 'relative' }}>
           {/* Image / upload panel (step 1) */}
           <span className="required-asterisk" style={{ position: 'absolute', top: 0, right: 0, fontSize: 20 }}>*</span>
-          <h3 style={{ margin: '0 0 8px', fontSize: 26, fontWeight: 700, color: '#000', textAlign: 'center' }}>Upload Image</h3>
+          <SectionTitle>Upload Image</SectionTitle>
           <div style={{ position: 'relative', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <div className="upload-area" style={{ position: 'relative', width: 'auto', maxWidth: 420, margin: '0 auto' }} onDrop={onDrop} onDragOver={onDragOver}>
                 {preview ? (
@@ -1119,7 +1054,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
           <div style={{ transition: 'all 280ms ease', minHeight: 220 }}>
             {step === 0 && (
               <div className="fields-area">
-                <h3 style={{ margin: '0 0 8px', fontSize: 26, fontWeight: 700, color: '#000', textAlign: 'center' }}>Label Information</h3>
+                <SectionTitle>Label Information</SectionTitle>
 
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 </div>
@@ -1453,7 +1388,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14, gridColumn: '1 / -1', width: '100%' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
           {step !== 0 && (
-            <Button type="button" variant="secondary" onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }}>Previous</Button>
+            <SecondaryButton type="button" onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }}>Previous</SecondaryButton>
           )}
           {step === 2 ? (
             viewOnly ? null : (
