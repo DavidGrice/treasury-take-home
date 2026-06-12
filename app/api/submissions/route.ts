@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { sql } from "@vercel/postgres";
 
+// extra Class/Type-specific label fields (see UploadForm.tsx TYPE_FIELD_CONFIG)
+const EXTRA_FIELD_COLUMNS = [
+  "is_imported",
+  "age_statement",
+  "color_disclosure",
+  "sulfite_aspartame",
+  "sulfite_declaration",
+  "commodity_statement",
+  "appellation_of_origin",
+  "percentage_foreign_wine",
+];
+
 async function ensureTable() {
   await sql`
     CREATE TABLE IF NOT EXISTS submissions (
@@ -19,6 +31,10 @@ async function ensureTable() {
       submitted_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `;
+
+  for (const col of EXTRA_FIELD_COLUMNS) {
+    await sql.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS ${col} TEXT`);
+  }
 }
 
 export async function GET() {
@@ -44,6 +60,15 @@ export async function POST(request: NextRequest) {
   const assessmentScoreRaw = form.get("assessmentScore");
   const assessmentScore = assessmentScoreRaw === null || assessmentScoreRaw === "" ? null : Number(assessmentScoreRaw);
 
+  const isImported = String(form.get("isImported") || "");
+  const ageStatement = String(form.get("ageStatement") || "");
+  const colorDisclosure = String(form.get("colorDisclosure") || "");
+  const sulfiteAspartame = String(form.get("sulfiteAspartame") || "");
+  const sulfiteDeclaration = String(form.get("sulfiteDeclaration") || "");
+  const commodityStatement = String(form.get("commodityStatement") || "");
+  const appellationOfOrigin = String(form.get("appellationOfOrigin") || "");
+  const percentageForeignWine = String(form.get("percentageForeignWine") || "");
+
   let imageUrl: string | null = null;
   const file = form.get("file");
   if (file instanceof File && file.size > 0) {
@@ -57,10 +82,14 @@ export async function POST(request: NextRequest) {
   const { rows } = await sql`
     INSERT INTO submissions (
       id, brand, type_designation, alcohol_content, net_contents,
-      producer, country, warning, assessment_score, image_url
+      producer, country, warning, assessment_score, image_url,
+      is_imported, age_statement, color_disclosure, sulfite_aspartame,
+      sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine
     ) VALUES (
       ${id}, ${brand}, ${typeDesignation}, ${alcoholContent}, ${netContents},
-      ${producer}, ${country}, ${warning}, ${assessmentScore}, ${imageUrl}
+      ${producer}, ${country}, ${warning}, ${assessmentScore}, ${imageUrl},
+      ${isImported}, ${ageStatement}, ${colorDisclosure}, ${sulfiteAspartame},
+      ${sulfiteDeclaration}, ${commodityStatement}, ${appellationOfOrigin}, ${percentageForeignWine}
     )
     RETURNING *
   `;

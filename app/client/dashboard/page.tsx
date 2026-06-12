@@ -11,6 +11,7 @@ export default function ClientDashboardPage() {
   const router = useRouter();
   const [showUpload, setShowUpload] = useState(false);
   const [forms, setForms] = useState<any[]>([]);
+  const [viewing, setViewing] = useState<any | null>(null);
 
   useEffect(() => {
     fetch("/api/submissions")
@@ -48,12 +49,13 @@ export default function ClientDashboardPage() {
                 <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}>Status</th>
                 <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}>Score</th>
                 <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}>Submitted Date</th>
+                <th style={{ padding: '8px 6px', position: 'sticky', top: 0, background: '#fff' }}></th>
               </tr>
             </thead>
             <tbody>
               {forms.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: 12, color: '#666' }}>No forms yet.</td>
+                  <td colSpan={6} style={{ padding: 12, color: '#666' }}>No forms yet.</td>
                 </tr>
               ) : (
                 forms.map((f) => (
@@ -63,6 +65,9 @@ export default function ClientDashboardPage() {
                     <td style={{ padding: '8px 6px' }}>{f.status}</td>
                     <td style={{ padding: '8px 6px' }}>{f.assessment_score === null || f.assessment_score === undefined ? 'N/A' : `${f.assessment_score}%`}</td>
                     <td style={{ padding: '8px 6px' }}>{new Date(f.submitted_at).toLocaleString()}</td>
+                    <td style={{ padding: '8px 6px' }}>
+                      <Button variant="secondary" onClick={() => setViewing(f)}>View</Button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -77,6 +82,12 @@ export default function ClientDashboardPage() {
           {showUpload && (
             <Modal onClose={() => setShowUpload(false)}>
               <UploadForm onSubmit={handleFormSubmit} />
+            </Modal>
+          )}
+
+          {viewing && (
+            <Modal onClose={() => setViewing(null)}>
+              <UploadForm viewOnly initialData={viewing} />
             </Modal>
           )}
         </div>

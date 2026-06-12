@@ -3,8 +3,43 @@ import React, { useState, useRef, useEffect } from "react";
 import Button from "./Button";
 import ImageAnnotator from "./ImageAnnotator";
 import Modal from "./Modal";
+import SearchableSelect from "./SearchableSelect";
+import { COUNTRIES } from "./countries";
 
-export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => void }) {
+const TYPE_DESIGNATIONS = ["Beer", "Malt Beverage", "Wine", "Distilled Spirits"];
+
+// label fields that vary by Class/Type designation (per TTB labeling rules).
+// "required" fields are always shown for that type; "applicable" fields are
+// shown behind a checkbox since they only apply in certain circumstances.
+const TYPE_FIELD_CONFIG: Record<string, { required: string[]; applicable: string[] }> = {
+  Beer: { required: [], applicable: ['colorDisclosure', 'sulfiteAspartame'] },
+  'Malt Beverage': { required: [], applicable: ['colorDisclosure', 'sulfiteAspartame'] },
+  'Distilled Spirits': { required: ['ageStatement'], applicable: ['colorDisclosure', 'commodityStatement'] },
+  Wine: { required: ['sulfiteDeclaration'], applicable: ['colorDisclosure', 'appellationOfOrigin', 'percentageForeignWine'] },
+};
+
+const EXTRA_FIELD_META: Record<string, { label: string; placeholder?: string }> = {
+  ageStatement: { label: 'Age statement', placeholder: 'e.g. Aged 4 years' },
+  colorDisclosure: { label: 'Color additive / ingredient disclosure' },
+  sulfiteAspartame: { label: 'Sulfite and aspartame declarations' },
+  sulfiteDeclaration: { label: 'Sulfite declaration', placeholder: 'e.g. Contains Sulfites' },
+  commodityStatement: { label: 'Commodity statement' },
+  appellationOfOrigin: { label: 'Appellation of origin' },
+  percentageForeignWine: { label: '% foreign wine', placeholder: 'e.g. Made with 100% Foreign Wine' },
+};
+
+// maps the camelCase extra field keys above to their snake_case DB columns
+const EXTRA_FIELD_DB_COLUMNS: Record<string, string> = {
+  ageStatement: 'age_statement',
+  colorDisclosure: 'color_disclosure',
+  sulfiteAspartame: 'sulfite_aspartame',
+  sulfiteDeclaration: 'sulfite_declaration',
+  commodityStatement: 'commodity_statement',
+  appellationOfOrigin: 'appellation_of_origin',
+  percentageForeignWine: 'percentage_foreign_wine',
+};
+
+export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubmit?: (data: any) => void; initialData?: any; viewOnly?: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [brand, setBrand] = useState("");
@@ -13,6 +48,9 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
   const [netContents, setNetContents] = useState("");
   const [producer, setProducer] = useState("");
   const [country, setCountry] = useState("");
+  const [isImported, setIsImported] = useState(false);
+  const [extraFields, setExtraFields] = useState<Record<string, string>>({});
+  const [extraApplicable, setExtraApplicable] = useState<Record<string, boolean>>({});
   const [parsedFields, setParsedFields] = useState<any>(null);
   const [ocrRaw, setOcrRaw] = useState<string>('');
   const [assessmentScore, setAssessmentScore] = useState<number | null>(null);
@@ -21,6 +59,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
   const [modalText, setModalText] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const annotRef = useRef<any>(null);
   const [step, setStep] = useState<number>(0); // 0: text, 1: image, 2: checklist
@@ -39,6 +78,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
       setHasFlash(null);
       setCheckStatus({});
       setAnalysisComplete(false);
+      setOcrConfidence(null);
       // preview only; analysis will run when user clicks Next from the image step
     }
     else setPreview(null);
@@ -68,8 +108,46 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     setNetContents("");
     setProducer("");
     setCountry("");
+    setIsImported(false);
+    setExtraFields({});
+    setExtraApplicable({});
     if (inputRef.current) inputRef.current.value = "";
   };
+
+  // populate the form from a saved submission for read-only viewing
+  useEffect(() => {
+    if (!initialData) return;
+    setBrand(initialData.brand || "");
+    setTypeDesignation(initialData.type_designation || "");
+    setAlcoholContent(initialData.alcohol_content || "");
+    setNetContents(initialData.net_contents || "");
+    setProducer(initialData.producer || "");
+    setCountry(initialData.country || "");
+    setIsImported(initialData.is_imported === 'Yes');
+
+    const newExtraFields: Record<string, string> = {};
+    const newExtraApplicable: Record<string, boolean> = {};
+    Object.entries(EXTRA_FIELD_DB_COLUMNS).forEach(([key, col]) => {
+      const val = initialData[col];
+      if (val) {
+        newExtraFields[key] = val;
+        newExtraApplicable[key] = true;
+      }
+    });
+    setExtraFields(newExtraFields);
+    setExtraApplicable(newExtraApplicable);
+
+    if (initialData.image_url) {
+      fetch(initialData.image_url)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const name = initialData.image_url.split('/').pop() || 'label.jpg';
+          handleFile(new File([blob], name, { type: blob.type }));
+        })
+        .catch((err) => console.error('Failed to load saved image:', err));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,9 +162,16 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     formData.append("alcoholContent", alcoholContent);
     formData.append("netContents", netContents);
     formData.append("producer", producer);
-    formData.append("country", country);
+    formData.append("country", isImported ? country : '');
+    formData.append("isImported", isImported ? 'Yes' : 'No');
     formData.append("warning", checkStatus['warningPresent'] === 'ok' ? 'Yes' : 'No');
     formData.append("assessmentScore", assessmentScore === null ? '' : String(assessmentScore));
+    // additional Class/Type-specific label fields (age statement, sulfite
+    // declarations, appellation of origin, etc.) - only send ones that apply
+    const typeConfig = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
+    [...typeConfig.required, ...typeConfig.applicable.filter((k) => extraApplicable[k])].forEach((key) => {
+      formData.append(key, extraFields[key] || '');
+    });
     if (file) formData.append("file", file);
 
     try {
@@ -423,23 +508,49 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
         continue;
       }
       total++;
-      // treat user input as regex; if invalid, fall back to literal match
+      // treat user input as regex; if invalid, fall back to literal match.
+      // any whitespace in the input becomes optional (\s*) so OCR text that
+      // drops/collapses spaces (e.g. "1PINT" vs "1 PINT") still matches.
       let ok = false;
       try {
-        const re = new RegExp(inVal, 'i');
+        const re = new RegExp(inVal.replace(/\s+/g, '\\s*'), 'i');
         ok = re.test(raw);
       } catch (e) {
         try {
           const esc = inVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const re2 = new RegExp(esc, 'i');
+          const re2 = new RegExp(esc.replace(/\s+/g, '\\s*'), 'i');
           ok = re2.test(raw);
         } catch (e2) { ok = false; }
+      }
+      // fallback: allow OCR whitespace noise between every character
+      // (e.g. "MALT BEVERAGE" vs "M A L T B E V E R A G E", or
+      // "1PINT" vs "1 P I N T"), regardless of which side has the spaces
+      if (!ok) {
+        const flexible = inVal
+          .replace(/\s+/g, '')
+          .split('')
+          .map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('\\s*');
+        try {
+          ok = new RegExp(flexible, 'i').test(raw);
+        } catch (e3) { /* ignore */ }
       }
       fm[key] = ok;
       if (ok) matches++;
     }
 
     return { fm, matches, total };
+  };
+
+  // the set of extra Class/Type-specific fields currently in play: always-required
+  // ones for this type, plus any "if applicable" ones the user has checked
+  const getActiveExtraInputs = (): Record<string, string> => {
+    const cfg = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
+    const out: Record<string, string> = {};
+    [...cfg.required, ...cfg.applicable.filter((k) => extraApplicable[k])].forEach((k) => {
+      out[k] = extraFields[k] || '';
+    });
+    return out;
   };
 
   // compute assessment by comparing user inputs (treated as regex) to parsed OCR fields
@@ -454,6 +565,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
       // label itself, so it's carried over from the form rather than OCR-validated
       const { fm, matches, total } = computeFieldMatches(rawText, {
         brand, typeDesignation, alcohol: alcoholContent, net: netContents, producer,
+        ...getActiveExtraInputs(),
       });
 
       if (token !== assessmentTokenRef.current) return;
@@ -468,7 +580,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     // recompute whenever parsed fields or user inputs change
     computeAssessment();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsedFields, brand, typeDesignation, alcoholContent, netContents, producer, country]);
+  }, [parsedFields, brand, typeDesignation, alcoholContent, netContents, producer, country, extraFields, extraApplicable]);
 
   // assessment scheduling state
   const assessmentTokenRef = React.useRef(0);
@@ -480,15 +592,20 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
   const [checkStatus, setCheckStatus] = useState<Record<string, 'idle' | 'running' | 'ok' | 'fail'>>({});
   const [runningChecks, setRunningChecks] = useState(false);
 
-  const allFieldsFilled = [brand, typeDesignation, alcoholContent, netContents, producer, country].every(v => (v || '').toString().trim().length > 0);
+  const typeConfig = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
+
+  const allFieldsFilled = [brand, typeDesignation, alcoholContent, netContents, producer].every(v => (v || '').toString().trim().length > 0)
+    && (!isImported || country.trim().length > 0)
+    && typeConfig.required.every((k) => (extraFields[k] || '').trim().length > 0)
+    && typeConfig.applicable.every((k) => !extraApplicable[k] || (extraFields[k] || '').trim().length > 0);
 
   const runAllChecks = async () => {
     if (!file) return alert('Please upload an image first');
     setRunningChecks(true);
     setAnalysisComplete(false);
     // reset statuses
-    const initial: Record<string, any> = { blurry: 'running', flash: 'running', ocr: 'idle', surgeonGeneral: 'idle', warningPresent: 'idle' };
-    ['brand','typeDesignation','alcohol','net','producer'].forEach(k => initial[k] = 'idle');
+    const initial: Record<string, any> = { blurry: 'running', flash: 'running', ocr: 'idle', surgeonGeneral: 'idle', warningPresent: 'idle', ocrConfidence: 'idle' };
+    ['brand','typeDesignation','alcohol','net','producer', ...Object.keys(getActiveExtraInputs())].forEach(k => initial[k] = 'idle');
     setCheckStatus(initial);
     addLog('runAllChecks: started');
     // move to checklist view immediately so user sees running spinners
@@ -537,7 +654,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     addLog('runAllChecks: starting OCR');
     setCheckStatus((s) => {
       const next: Record<string, any> = { ...s, ocr: 'running' };
-      ['brand','typeDesignation','alcohol','net','producer'].forEach(k => next[k] = 'running');
+      ['brand','typeDesignation','alcohol','net','producer', ...Object.keys(getActiveExtraInputs())].forEach(k => next[k] = 'running');
       return next;
     });
     try {
@@ -551,13 +668,14 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
       const rawText = (parsed || {}).raw || '';
       const { fm, matches, total } = computeFieldMatches(rawText, {
         brand, typeDesignation, alcohol: alcoholContent, net: netContents, producer,
+        ...getActiveExtraInputs(),
       });
       setFieldMatches(fm);
       setAssessmentScore(total === 0 ? null : Math.round((matches / total) * 100));
 
       const updates: Record<string, any> = {};
       let anyFail = false;
-      ['brand','typeDesignation','alcohol','net','producer'].forEach(k => {
+      ['brand','typeDesignation','alcohol','net','producer', ...Object.keys(getActiveExtraInputs())].forEach(k => {
         const v = fm[k];
         if (v === 'no-input') updates[k] = 'idle';
         else if (v === true) updates[k] = 'ok';
@@ -574,6 +692,17 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
       const gwExact = /government warning/i.test(rawText);
       if (gwExact) updates.warningPresent = 'ok';
       else { updates.warningPresent = 'fail'; anyFail = true; }
+
+      // overall OCR confidence: low confidence means the parsed fields above
+      // are less trustworthy and may warrant manual review even if they matched
+      const conf = (parsed || {}).confidence;
+      setOcrConfidence(typeof conf === 'number' ? conf : null);
+      if (typeof conf === 'number') {
+        if (conf >= 70) updates.ocrConfidence = 'ok';
+        else { updates.ocrConfidence = 'fail'; anyFail = true; }
+      } else {
+        updates.ocrConfidence = 'idle';
+      }
 
       setCheckStatus((s) => ({ ...s, ...updates }));
 
@@ -593,12 +722,23 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     }
   };
 
-  const parseFromRects = (ocrResults: Array<{ rect: any; text: string }>) => {
+  const parseFromRects = (ocrResults: Array<{ rect: any; text: string; confidence?: number | null }>) => {
     if (!ocrResults || ocrResults.length === 0) return {};
 
     // sort top->bottom, left->right
     const sorted = [...ocrResults].sort((a, b) => (a.rect.y - b.rect.y) || (a.rect.x - b.rect.x));
     const joined = sorted.map(r => r.text.replace(/[\u2018\u2019\u201C\u201D]/g, '"')).join('\n').replace(/\s+\n/g,'\n');
+
+    // overall OCR confidence: average of per-rect confidences, weighted by
+    // recognized text length (longer rects contribute more to the result)
+    const confidenceSamples = sorted
+      .map(r => ({ len: r.text.trim().length, conf: typeof r.confidence === 'number' ? r.confidence : null }))
+      .filter(r => r.len > 0 && r.conf !== null) as Array<{ len: number; conf: number }>;
+    let confidence: number | null = null;
+    if (confidenceSamples.length > 0) {
+      const totalLen = confidenceSamples.reduce((s, r) => s + r.len, 0);
+      confidence = Math.round(confidenceSamples.reduce((s, r) => s + r.conf * r.len, 0) / totalLen);
+    }
 
     // split into lines and normalize characters likely from OCR noise
     const lines = joined.split(/\r?\n/)
@@ -702,15 +842,17 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
     const hasGov = /government\s*warning/i.test(joined) || (/government/i.test(joined) && /warning/i.test(joined));
     if (!warning && hasGov) warning = 'GOVERNMENT WARNING';
 
-    return { brand, alcohol, net, producer, country, warning, raw };
+    return { brand, alcohol, net, producer, country, warning, raw, confidence };
   };
 
   return (
     <form onSubmit={handleSubmit} className="form-split">
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', justifyContent: step === 1 ? 'center' : (step === 0 ? 'center' : 'flex-start'), gridColumn: '1 / -1', width: '100%' }}>
         {step === 1 && (
-        <div style={{ flex: '0 1 auto', minWidth: 320 }}>
+        <div style={{ flex: '0 1 auto', minWidth: 320, position: 'relative' }}>
           {/* Image / upload panel (step 1) */}
+          <span className="required-asterisk" style={{ position: 'absolute', top: 0, right: 0, fontSize: 20 }}>*</span>
+          <h3 style={{ margin: '0 0 8px', fontSize: 26, fontWeight: 700, color: '#000', textAlign: 'center' }}>Upload Image</h3>
           <div style={{ position: 'relative', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <div className="upload-area" style={{ position: 'relative', width: 'auto', maxWidth: 420, margin: '0 auto' }} onDrop={onDrop} onDragOver={onDragOver}>
                 {preview ? (
@@ -720,12 +862,16 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
                     <div className="upload-drop">Drop an image here or</div>
                   </div>
                 )}
-                  <input ref={inputRef} type="file" accept="image/*" onChange={onFileChange} style={preview ? { display: 'none' } : { marginTop: 8 }} />
-                  <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-                    <Button type="button" variant="secondary" onClick={() => { if (inputRef.current) inputRef.current.click(); }}>
-                      {preview ? 'Replace photo' : 'Upload file'}
-                    </Button>
-                  </div>
+                  {!viewOnly && (
+                    <>
+                      <input ref={inputRef} type="file" accept="image/*" onChange={onFileChange} style={preview ? { display: 'none' } : { marginTop: 8 }} />
+                      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                        <Button type="button" variant="secondary" onClick={() => { if (inputRef.current) inputRef.current.click(); }}>
+                          {preview ? 'Replace photo' : 'Upload file'}
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 {ocrLoading && (
                   <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', zIndex: 50 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
@@ -757,39 +903,108 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
 
                 <div className="field-row">
                   <label className="field-label">Brand name <span className="required-asterisk">*</span></label>
-                  <input required className="field-input" value={brand} onChange={(e) => setBrand(e.target.value)} />
+                  <input required disabled={viewOnly} className="field-input" value={brand} onChange={(e) => setBrand(e.target.value)} />
                 </div>
 
                 <div className="field-row">
                   <label className="field-label">Class / Type designation <span className="required-asterisk">*</span></label>
-                  <select required className="field-input" value={typeDesignation} onChange={(e) => setTypeDesignation(e.target.value)}>
-                    <option value="" disabled>Select a type…</option>
-                    <option value="Beer">Beer</option>
-                    <option value="Malt Beverage">Malt Beverage</option>
-                    <option value="Wine">Wine</option>
-                    <option value="Distilled Spirits">Distilled Spirits</option>
-                  </select>
+                  <SearchableSelect
+                    required
+                    disabled={viewOnly}
+                    className="field-input"
+                    value={typeDesignation}
+                    onChange={setTypeDesignation}
+                    placeholder="Search for a type…"
+                    options={TYPE_DESIGNATIONS}
+                  />
                 </div>
 
                 <div className="field-row">
                   <label className="field-label">Alcohol content <span className="required-asterisk">*</span></label>
-                  <input required className="field-input" value={alcoholContent} onChange={(e) => setAlcoholContent(e.target.value)} placeholder="e.g. 45% Alc./Vol." />
+                  <input required disabled={viewOnly} className="field-input" value={alcoholContent} onChange={(e) => setAlcoholContent(e.target.value)} placeholder="e.g. 45% Alc./Vol." />
                 </div>
 
                 <div className="field-row">
                   <label className="field-label">Net contents <span className="required-asterisk">*</span></label>
-                  <input required className="field-input" value={netContents} onChange={(e) => setNetContents(e.target.value)} placeholder="e.g. 750 mL" />
+                  <input required disabled={viewOnly} className="field-input" value={netContents} onChange={(e) => setNetContents(e.target.value)} placeholder="e.g. 750 mL" />
                 </div>
 
                 <div className="field-row">
                   <label className="field-label">Name and address of bottler/producer <span className="required-asterisk">*</span></label>
-                  <input required className="field-input" value={producer} onChange={(e) => setProducer(e.target.value)} />
+                  <input required disabled={viewOnly} className="field-input" value={producer} onChange={(e) => setProducer(e.target.value)} />
                 </div>
 
+                {typeConfig.required.map((key) => {
+                  const meta = EXTRA_FIELD_META[key];
+                  return (
+                    <div className="field-row" key={key}>
+                      <label className="field-label">{meta.label} <span className="required-asterisk">*</span></label>
+                      <input
+                        required
+                        disabled={viewOnly}
+                        className="field-input"
+                        value={extraFields[key] || ''}
+                        onChange={(e) => setExtraFields((s) => ({ ...s, [key]: e.target.value }))}
+                        placeholder={meta.placeholder}
+                      />
+                    </div>
+                  );
+                })}
+
+                {typeConfig.applicable.map((key) => {
+                  const meta = EXTRA_FIELD_META[key];
+                  const applicable = !!extraApplicable[key];
+                  return (
+                    <div className="field-row" key={key}>
+                      <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          disabled={viewOnly}
+                          checked={applicable}
+                          onChange={(e) => setExtraApplicable((s) => ({ ...s, [key]: e.target.checked }))}
+                        />
+                        {meta.label} (if applicable){applicable && <span className="required-asterisk">*</span>}
+                      </label>
+                      {applicable && (
+                        <input
+                          required
+                          disabled={viewOnly}
+                          className="field-input"
+                          value={extraFields[key] || ''}
+                          onChange={(e) => setExtraFields((s) => ({ ...s, [key]: e.target.value }))}
+                          placeholder={meta.placeholder}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+
                 <div className="field-row">
-                  <label className="field-label">Country of origin (imports) <span className="required-asterisk">*</span></label>
-                  <input required className="field-input" value={country} onChange={(e) => setCountry(e.target.value)} />
+                  <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      disabled={viewOnly}
+                      checked={isImported}
+                      onChange={(e) => setIsImported(e.target.checked)}
+                    />
+                    Imported product?
+                  </label>
                 </div>
+
+                {isImported && (
+                  <div className="field-row">
+                    <label className="field-label">Country of origin (imports) <span className="required-asterisk">*</span></label>
+                    <SearchableSelect
+                      required
+                      disabled={viewOnly}
+                      className="field-input"
+                      value={country}
+                      onChange={setCountry}
+                      placeholder="Search for a country…"
+                      options={COUNTRIES}
+                    />
+                  </div>
+                )}
 
                 {/* Navigation for the wizard lives below (Prev/Next) - submit/clear only shown on last step */}
               </div>
@@ -836,10 +1051,10 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
                   <li style={{ marginBottom: 8 }}>
                     <strong>Checking fields:</strong>
                     <div style={{ marginLeft: 10 }}>
-                      {['brand','typeDesignation','alcohol','net','producer'].map((k) => {
+                      {['brand','typeDesignation','alcohol','net','producer', ...Object.keys(getActiveExtraInputs())].map((k) => {
                         const running = checkStatus[k] === 'running';
                         const status = checkStatus[k] ?? (fieldMatches[k] === 'no-input' ? 'idle' : (fieldMatches[k] === true ? 'ok' : (fieldMatches[k] === false ? 'fail' : 'idle')));
-                        const label = k === 'net' ? 'Net contents' : (k === 'alcohol' ? 'Alcohol content' : (k === 'typeDesignation' ? 'Class / Type designation' : (k === 'brand' ? 'Brand name' : 'Producer')));
+                        const label = k === 'net' ? 'Net contents' : (k === 'alcohol' ? 'Alcohol content' : (k === 'typeDesignation' ? 'Class / Type designation' : (k === 'brand' ? 'Brand name' : (k === 'producer' ? 'Producer' : (EXTRA_FIELD_META[k]?.label || k)))));
                         const statusText = status === 'idle' ? 'No input / no OCR' : (status === 'ok' ? 'Matched' : (status === 'running' ? 'Analyzing…' : 'Not matched'));
                         const cls = status === 'idle' ? 'status-no' : (status === 'ok' ? 'status-true' : 'status-false');
                         const icon = status === 'idle' ? '–' : (status === 'ok' ? '✓' : '✖');
@@ -908,6 +1123,31 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
                   </li>
 
                   <li style={{ marginBottom: 8 }}>
+                    <strong>OCR confidence:</strong>
+                    <div style={{ marginLeft: 10 }}>
+                      {(() => {
+                        const st = checkStatus['ocrConfidence'] ?? 'idle';
+                        const statusText = st === 'idle'
+                          ? 'Not analyzed'
+                          : (st === 'running'
+                            ? 'Analyzing…'
+                            : (st === 'ok' ? `Good (${ocrConfidence}%)` : `Low (${ocrConfidence}%) — review parsed fields manually`));
+                        const cls = st === 'idle' ? 'status-no' : (st === 'ok' ? 'status-true' : (st === 'running' ? 'status-no' : 'status-false'));
+                        return (
+                          <div className="check-item">
+                            <span className={`status-icon ${cls}`}>
+                              {st === 'running' ? (
+                                <svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="white" strokeWidth="3" strokeOpacity="0.3" fill="none"/><path d="M22 12a10 10 0 0 1-10 10" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></path></svg>
+                              ) : (st === 'idle' ? '–' : (st === 'ok' ? '✓' : '✖'))}
+                            </span>
+                            {statusText}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </li>
+
+                  <li style={{ marginBottom: 8 }}>
                     <strong>Overall assessment score:</strong> {assessing ? 'Assessing…' : (assessmentScore === null ? 'N/A' : `${assessmentScore}%`)}
                   </li>
                 </ul>
@@ -924,6 +1164,7 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
           <Button type="button" variant="secondary" onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }} disabled={step === 0}>Previous</Button>
           {step === 2 ? (
+            viewOnly ? null : (
             <Button
               type="button"
               onClick={(e) => {
@@ -934,17 +1175,18 @@ export default function UploadForm({ onSubmit }: { onSubmit?: (data: any) => voi
             >
               Save / Submit
             </Button>
+            )
           ) : (
             <Button
               type="button"
               onClick={(e) => {
                 e.preventDefault();
                 if (step === 0) {
-                  console.log('View 1 input fields:', { brand, typeDesignation, alcoholContent, netContents, producer, country });
+                  console.log('View 1 input fields:', { brand, typeDesignation, alcoholContent, netContents, producer, isImported, country, ...getActiveExtraInputs() });
                 }
                 if (step === 1) runAllChecks(); else setStep((s) => Math.min(2, s + 1));
               }}
-              disabled={(step === 0 && !allFieldsFilled) || (step === 1 && runningChecks)}
+              disabled={(step === 0 && !allFieldsFilled) || (step === 1 && (!file || runningChecks))}
             >
               {runningChecks ? 'Analyzing…' : 'Next'}
             </Button>
