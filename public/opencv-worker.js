@@ -101,6 +101,12 @@ self.onmessage = async (e) => {
   else if (type === 'flashcheck') {
     const { bitmap } = e.data;
     try {
+      if (!cvReady) {
+        await new Promise((res) => {
+          const wait = () => { if (cvReady) res(); else setTimeout(wait, 50); };
+          wait();
+        });
+      }
       const width = bitmap.width;
       const height = bitmap.height;
       const canvas = new OffscreenCanvas(width, height);
@@ -109,8 +115,12 @@ self.onmessage = async (e) => {
       bitmap.close();
       const imgData = ctx.getImageData(0, 0, width, height);
 
-      // Use OpenCV connected-region detection: threshold for very bright
-      // pixels, then find contours and compute area ratios.
+      // A camera flash produces a compact, roughly circular "hotspot" of
+      // saturated pixels with a radial falloff, usually away from the image
+      // edges. A bright (but evenly lit / large) background - common in
+      // high-quality scans or app-generated label images - shows up as a
+      // large region that touches the image borders and isn't circular, so
+      // we look for round, edge-free bright blobs rather than raw brightness.
       const src = cv.matFromImageData(imgData);
       const gray = new cv.Mat();
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
@@ -120,29 +130,43 @@ self.onmessage = async (e) => {
       const threshVal = 250; // very bright
       cv.threshold(gray, thresh, threshVal, 255, cv.THRESH_BINARY);
 
-      // total bright pixels
-      const brightCount = cv.countNonZero(thresh);
-      const brightRatio = brightCount / (width * height);
-
       const contours = new cv.MatVector();
       const hierarchy = new cv.Mat();
       cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-      let maxArea = 0;
-      let totalArea = 0;
+      const imgArea = width * height;
+      const margin = Math.round(Math.min(width, height) * 0.02);
+      let bestCircularity = 0;
+      let bestAreaRatio = 0;
+
       for (let i = 0; i < contours.size(); i++) {
         const cnt = contours.get(i);
         const area = cv.contourArea(cnt);
-        totalArea += area;
-        if (area > maxArea) maxArea = area;
+        // ignore tiny specks and blobs covering most of the frame (background)
+        if (area < imgArea * 0.0005 || area > imgArea * 0.25) { cnt.delete(); continue; }
+
+        const rect = cv.boundingRect(cnt);
+        const touchesBorder = rect.x <= margin || rect.y <= margin
+          || (rect.x + rect.width) >= (width - margin)
+          || (rect.y + rect.height) >= (height - margin);
+        if (touchesBorder) { cnt.delete(); continue; }
+
+        const perimeter = cv.arcLength(cnt, true);
+        const circularity = perimeter > 0 ? (4 * Math.PI * area) / (perimeter * perimeter) : 0;
+        if (circularity > bestCircularity) {
+          bestCircularity = circularity;
+          bestAreaRatio = area / imgArea;
+        }
         cnt.delete();
       }
 
-      const largestRegionRatio = maxArea / (width * height);
+      // a near-circular saturated hotspot away from the edges is the
+      // signature of a flash reflection / radial glare
+      const flashDetected = bestCircularity > 0.55 && bestAreaRatio > 0.0008;
 
       src.delete(); gray.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
 
-      self.postMessage({ type: 'flashResult', brightRatio, largestRegionRatio });
+      self.postMessage({ type: 'flashResult', circularity: bestCircularity, areaRatio: bestAreaRatio, flashDetected });
     } catch (err) {
       self.postMessage({ type: 'error', message: String(err) });
     }

@@ -1,0 +1,86 @@
+[
+  {
+    "mandatory_item_name": "Brand Name",
+    "description": "Name under which the product is sold.",
+    "regulatory_citation": "27 CFR 7.64",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.64"]
+  },
+  {
+    "mandatory_item_name": "Designation Class/Type",
+    "description": "Class or type designation such as \"Malt Beverage,\" \"Stout,\" \"Ale,\" \"India Pale Ale,\" etc.; must be consistent with regulations or TTB guidance and separate and apart from other information.",
+    "regulatory_citation": "27 CFR 7.63; subpart I of part 7",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.63","https://www.ecfr.gov/current/title-27/part-7#subpart-I"]
+  },
+  {
+    "mandatory_item_name": "Other Designation (Distinctive or Fanciful Name with Statement of Composition)",
+    "description": "A distinctive or fanciful name together with an adequate and truthful statement of the composition of the product.",
+    "regulatory_citation": "27 CFR 7.63; subpart I of part 7",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.63","https://www.ecfr.gov/current/title-27/part-7#subpart-I"]
+  },
+  {
+    "mandatory_item_name": "Name and Address (domestic, wholly fermented in US)",
+    "description": "Bottler's name and city/state as listed on brewer's notice; may be on label or molded into container.",
+    "regulatory_citation": "27 CFR 7.66",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.66"]
+  },
+  {
+    "mandatory_item_name": "Net Contents",
+    "description": "Net contents statement in U.S. customary units (fl oz, pints, quarts, gallons); metric may be added.",
+    "regulatory_citation": "27 CFR 7.70",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.70"]
+  },
+  {
+    "mandatory_item_name": "Alcohol Content (alc. % by volume)",
+    "description": "Alcohol by volume statement rules and tolerances; required in certain cases.",
+    "regulatory_citation": "27 CFR 7.65",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.65"]
+  },
+  {
+    "mandatory_item_name": "Alcohol by Weight",
+    "description": "Alcohol by weight may be shown but must accompany % alcohol by volume.",
+    "regulatory_citation": "27 CFR 7.65",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.65"]
+  },
+  {
+    "mandatory_item_name": "Health Warning Statement",
+    "description": "Mandatory government health warning wording and formatting requirements.",
+    "regulatory_citation": "27 CFR part 16",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-16"]
+  },
+  {
+    "mandatory_item_name": "Country of Origin (imported products only)",
+    "description": "Country of origin marking for imported malt beverages; CBP rules apply.",
+    "regulatory_citation": "27 CFR 7.69 (citing 19 CFR parts 102 and 134)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.69","https://www.ecfr.gov/current/title-19/part-102","https://www.ecfr.gov/current/title-19/part-134"]
+  },
+  {
+    "mandatory_item_name": "Name and Address (imported products only)",
+    "description": "Importer name and city/state; must follow 'Imported by' or similar phrase.",
+    "regulatory_citation": "27 CFR 7.67-7.68",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.67","https://www.ecfr.gov/current/title-27/part-7/section-7.68"]
+  },
+  {
+    "mandatory_item_name": "FD&C Yellow No. 5 Declaration",
+    "description": "If FD&C Yellow No. 5 is used, label must state that fact.",
+    "regulatory_citation": "27 CFR 7.63(b)(1)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.63"]
+  },
+  {
+    "mandatory_item_name": "Cochineal Extract or Carmine Declaration",
+    "description": "If cochineal extract or carmine is used, label must state that fact.",
+    "regulatory_citation": "27 CFR 7.63(b)(2)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.63"]
+  },
+  {
+    "mandatory_item_name": "Sulfite Declaration",
+    "description": "If total sulfur dioxide ≥ 10 ppm, label must state 'Contains Sulfites' (or equivalent).",
+    "regulatory_citation": "27 CFR 7.63(b)(3)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.63"]
+  },
+  {
+    "mandatory_item_name": "Aspartame Declaration",
+    "description": "If aspartame is used, label must include 'PHENYLKETONURICS: CONTAINS PHENYLALANINE' in caps and separate.",
+    "regulatory_citation": "27 CFR 7.63(b)(4)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-7/section-7.63"]
+  }
+]

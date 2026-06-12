@@ -5,8 +5,165 @@ import ImageAnnotator from "./ImageAnnotator";
 import Modal from "./Modal";
 import SearchableSelect from "./SearchableSelect";
 import { COUNTRIES } from "./countries";
+import wineChecklist from "../../api/wine_checklist_information.json";
+import maltBeverageChecklist from "../../api/malt_beverage_checklist_information.json";
+import distilledSpiritsChecklist from "../../api/distilled_spirits_checklist_information.json";
 
-const TYPE_DESIGNATIONS = ["Beer", "Malt Beverage", "Wine", "Distilled Spirits"];
+const TYPE_DESIGNATIONS = ["Malt Beverage", "Wine", "Distilled Spirits"];
+
+const ALCOHOL_UNITS = ["Alc./Vol.", "Alc./Wt."];
+
+const NET_CONTENTS_UNITS = ["Fl. Oz", "Pint", "Quart", "Gallon", "mL", "L"];
+const FL_OZ_PER_ML = 1 / 29.5735;
+const FL_OZ_PER_UNIT: Record<string, number> = { "Fl. Oz": 1, Pint: 16, Quart: 32, Gallon: 128, mL: FL_OZ_PER_ML, L: FL_OZ_PER_ML * 1000 };
+
+// units that take a secondary "X Fl. Oz" remainder (metric units are a single value)
+const UNITS_WITH_FL_OZ_REMAINDER = ["Pint", "Quart", "Gallon"];
+
+// flags net-content combinations that should be expressed using a larger unit
+// (e.g. 32 Fl. Oz must be entered as 1 Quart, or 1000 mL as 1 L) or an
+// out-of-range Fl. Oz remainder. Metric values are allowed so long as they
+// equate to the nearest tenth of a fluid ounce, which any decimal value does.
+function validateNetContents(value: string, unit: string, secondary: string): string | null {
+  const v = parseFloat(value);
+  if (!value || isNaN(v) || v <= 0) return null;
+
+  if (unit === "Fl. Oz") {
+    for (const biggerUnit of ["Gallon", "Quart", "Pint"]) {
+      const factor = FL_OZ_PER_UNIT[biggerUnit];
+      if (v >= factor && v % factor === 0) {
+        const qty = v / factor;
+        return `${v} Fl. Oz must be expressed as ${qty} ${biggerUnit}${qty !== 1 ? "s" : ""} instead.`;
+      }
+    }
+    return null;
+  }
+
+  if (unit === "mL") {
+    if (v >= 1000 && v % 1000 === 0) {
+      const qty = v / 1000;
+      return `${v} mL must be expressed as ${qty} L instead.`;
+    }
+    // 27 CFR 4.72: contents under 1 liter are stated in whole milliliters
+    if (v % 1 !== 0) {
+      return "mL must be a whole number (under 1 liter is stated in whole mL).";
+    }
+    return null;
+  }
+
+  if (unit === "L") {
+    // 27 CFR 4.72: contents under 1 liter must be stated in mL, not L
+    if (v < 1) {
+      return "Net contents under 1 liter must be stated in mL, not L.";
+    }
+    // ...and 1 liter or more is stated to the nearest hundredth of a liter
+    const rounded = Math.round(v * 100) / 100;
+    if (Math.abs(v - rounded) > 1e-9) {
+      return "L must be accurate to the nearest hundredth of a liter (e.g. 1.75 L).";
+    }
+    return null;
+  }
+
+  const sec = secondary === "" ? 0 : parseFloat(secondary);
+  if (!isNaN(sec) && (sec < 0 || sec >= 16)) {
+    return "Fl. Oz portion must be between 0 and 15.";
+  }
+  return null;
+}
+
+type ChecklistItem = {
+  mandatory_item_name: string;
+  description: string;
+  regulatory_citation: string;
+  link_to_citation: string[];
+};
+
+// per-Class/Type reference data (TTB mandatory labeling information), keyed
+// to match TYPE_DESIGNATIONS above
+const CHECKLIST_DATA: Record<string, ChecklistItem[]> = {
+  Wine: wineChecklist,
+  'Malt Beverage': maltBeverageChecklist,
+  Beer: maltBeverageChecklist,
+  'Distilled Spirits': distilledSpiritsChecklist,
+};
+
+// maps each form field to the corresponding mandatory_item_name entry/entries
+// in CHECKLIST_DATA for the current Class/Type designation
+const CHECKLIST_FIELD_MAP: Record<string, Record<string, string[]>> = {
+  Wine: {
+    brand: ['Brand Name'],
+    typeDesignation: ['Designation Class/Type or Statement of Composition'],
+    alcoholContent: ['Alcohol Content'],
+    netContents: ['Net Contents'],
+    producer: ['Name and Address'],
+    country: ['Country of Origin (imported products only)'],
+    colorDisclosure: ['FD&C Yellow No. 5 Declaration', 'Cochineal Extract or Carmine Declaration'],
+    sulfiteDeclaration: ['Sulfite Declaration'],
+    appellationOfOrigin: ['Appellation of Origin'],
+    percentageForeignWine: ['Percentage of Foreign Wine'],
+  },
+  'Malt Beverage': {
+    brand: ['Brand Name'],
+    typeDesignation: ['Designation Class/Type', 'Other Designation (Distinctive or Fanciful Name with Statement of Composition)'],
+    alcoholContent: ['Alcohol Content (alc. % by volume)', 'Alcohol by Weight'],
+    netContents: ['Net Contents'],
+    producer: ['Name and Address (domestic, wholly fermented in US)', 'Name and Address (imported products only)'],
+    country: ['Country of Origin (imported products only)'],
+    colorDisclosure: ['FD&C Yellow No. 5 Declaration', 'Cochineal Extract or Carmine Declaration'],
+    sulfiteAspartame: ['Sulfite Declaration', 'Aspartame Declaration'],
+  },
+  'Distilled Spirits': {
+    brand: ['Brand Name'],
+    typeDesignation: ['Designation Class/Type or Distinctive/Fanciful Name with Statement of Composition'],
+    alcoholContent: ['Alcohol Content'],
+    netContents: ['Net Contents'],
+    producer: ['Name and Address (domestic/imported as applicable)'],
+    country: ['Country of Origin (imported products only)'],
+    ageStatement: ['Statement of Age'],
+    colorDisclosure: ['Presence of Coloring Materials', 'FD&C Yellow No. 5 Declaration', 'Cochineal Extract or Carmine Declaration'],
+    commodityStatement: ['Commodity Statements (Presence of Neutral Spirits / Commodity of Distillation)', 'State of Distillation'],
+  },
+};
+CHECKLIST_FIELD_MAP.Beer = CHECKLIST_FIELD_MAP['Malt Beverage'];
+
+const getChecklistItems = (typeDesignation: string, fieldKey: string): ChecklistItem[] => {
+  const data = CHECKLIST_DATA[typeDesignation];
+  const names = CHECKLIST_FIELD_MAP[typeDesignation]?.[fieldKey];
+  if (!data || !names) return [];
+  return names
+    .map((name) => data.find((item) => item.mandatory_item_name === name))
+    .filter((item): item is ChecklistItem => !!item);
+};
+
+// small "(i)" button shown next to a field label; opens a modal with the
+// regulatory citation/description for that field, if any is available for
+// the currently selected Class/Type designation
+function InfoButton({ items, onOpen }: { items: ChecklistItem[]; onOpen: (items: ChecklistItem[]) => void }) {
+  if (items.length === 0) return null;
+  // intentionally a <span>, not a <button>: <button> is a "labelable" element,
+  // so when this sits inside a <label> the browser implicitly associates the
+  // label with it - clicking anywhere in the label (even empty space next to
+  // the icon) would forward the click here and pop the info modal
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      className="info-icon"
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpen(items); }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpen(items);
+        }
+      }}
+      aria-label="Show regulatory information"
+      title="Show regulatory information"
+    >
+      i
+    </span>
+  );
+}
 
 // label fields that vary by Class/Type designation (per TTB labeling rules).
 // "required" fields are always shown for that type; "applicable" fields are
@@ -45,7 +202,11 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
   const [brand, setBrand] = useState("");
   const [typeDesignation, setTypeDesignation] = useState("");
   const [alcoholContent, setAlcoholContent] = useState("");
+  const [alcoholUnit, setAlcoholUnit] = useState(ALCOHOL_UNITS[0]);
+  const [infoModalItems, setInfoModalItems] = useState<ChecklistItem[] | null>(null);
   const [netContents, setNetContents] = useState("");
+  const [netContentsUnit, setNetContentsUnit] = useState(NET_CONTENTS_UNITS[0]);
+  const [netContentsSecondary, setNetContentsSecondary] = useState("");
   const [producer, setProducer] = useState("");
   const [country, setCountry] = useState("");
   const [isImported, setIsImported] = useState(false);
@@ -105,7 +266,10 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     setBrand("");
     setTypeDesignation("");
     setAlcoholContent("");
+    setAlcoholUnit(ALCOHOL_UNITS[0]);
     setNetContents("");
+    setNetContentsUnit(NET_CONTENTS_UNITS[0]);
+    setNetContentsSecondary("");
     setProducer("");
     setCountry("");
     setIsImported(false);
@@ -114,13 +278,29 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     if (inputRef.current) inputRef.current.value = "";
   };
 
+  const [netContentsError, setNetContentsError] = useState<string | null>(null);
+  useEffect(() => {
+    setNetContentsError(validateNetContents(netContents, netContentsUnit, netContentsSecondary));
+  }, [netContents, netContentsUnit, netContentsSecondary]);
+
+  // builds the value used for OCR-matching and submission, e.g. "1 Pint 2 Fl. Oz"
+  const netContentsDisplay = () => {
+    if (!netContents) return '';
+    if (!UNITS_WITH_FL_OZ_REMAINDER.includes(netContentsUnit)) return `${netContents} ${netContentsUnit}`;
+    const sec = netContentsSecondary && Number(netContentsSecondary) > 0 ? ` ${netContentsSecondary} Fl. Oz` : '';
+    return `${netContents} ${netContentsUnit}${sec}`;
+  };
+
   // populate the form from a saved submission for read-only viewing
   useEffect(() => {
     if (!initialData) return;
     setBrand(initialData.brand || "");
     setTypeDesignation(initialData.type_designation || "");
     setAlcoholContent(initialData.alcohol_content || "");
+    setAlcoholUnit(initialData.alcohol_unit || ALCOHOL_UNITS[0]);
     setNetContents(initialData.net_contents || "");
+    setNetContentsUnit(initialData.net_contents_unit || NET_CONTENTS_UNITS[0]);
+    setNetContentsSecondary(initialData.net_contents_secondary || "");
     setProducer(initialData.producer || "");
     setCountry(initialData.country || "");
     setIsImported(initialData.is_imported === 'Yes');
@@ -142,10 +322,36 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
         .then((res) => res.blob())
         .then((blob) => {
           const name = initialData.image_url.split('/').pop() || 'label.jpg';
-          handleFile(new File([blob], name, { type: blob.type }));
+          const f = new File([blob], name, { type: blob.type });
+          // set file/preview directly rather than via handleFile, which
+          // resets analysis state (isBlurry/hasFlash/checkStatus/etc.) as
+          // if a brand-new photo were chosen - that would clobber the
+          // stored assessment results we just populated below
+          setFile(f);
+          setPreview(URL.createObjectURL(f));
         })
         .catch((err) => console.error('Failed to load saved image:', err));
     }
+
+    // populate read-only assessment results from the stored assessment row
+    setAssessmentScore(
+      initialData.assessment_score === null || initialData.assessment_score === undefined
+        ? null
+        : initialData.assessment_score
+    );
+    setFieldMatches(initialData.assessment_field_matches || {});
+    setIsBlurry(initialData.assessment_blurry ?? null);
+    setHasFlash(initialData.assessment_flash ?? null);
+    const conf = initialData.assessment_ocr_confidence;
+    setOcrConfidence(typeof conf === 'number' ? conf : null);
+    const boolStatus = (v: boolean | null | undefined): 'idle' | 'ok' | 'fail' =>
+      v === null || v === undefined ? 'idle' : (v ? 'ok' : 'fail');
+    setCheckStatus({
+      warningPresent: boolStatus(initialData.assessment_warning_present),
+      surgeonGeneral: boolStatus(initialData.assessment_surgeon_general),
+      ocrConfidence: typeof conf === 'number' ? (conf >= 70 ? 'ok' : 'fail') : 'idle',
+    });
+    setAnalysisComplete(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData]);
 
@@ -160,12 +366,21 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     formData.append("brand", brand);
     formData.append("typeDesignation", typeDesignation);
     formData.append("alcoholContent", alcoholContent);
+    formData.append("alcoholUnit", alcoholUnit);
     formData.append("netContents", netContents);
+    formData.append("netContentsUnit", netContentsUnit);
+    formData.append("netContentsSecondary", netContentsSecondary);
     formData.append("producer", producer);
     formData.append("country", isImported ? country : '');
     formData.append("isImported", isImported ? 'Yes' : 'No');
     formData.append("warning", checkStatus['warningPresent'] === 'ok' ? 'Yes' : 'No');
     formData.append("assessmentScore", assessmentScore === null ? '' : String(assessmentScore));
+    formData.append("blurry", isBlurry === null ? '' : String(isBlurry));
+    formData.append("flash", hasFlash === null ? '' : String(hasFlash));
+    formData.append("warningPresent", checkStatus['warningPresent'] === 'ok' ? 'true' : 'false');
+    formData.append("surgeonGeneral", checkStatus['surgeonGeneral'] === 'ok' ? 'true' : 'false');
+    formData.append("ocrConfidence", ocrConfidence === null ? '' : String(ocrConfidence));
+    formData.append("fieldMatches", JSON.stringify(fieldMatches));
     // additional Class/Type-specific label fields (age statement, sulfite
     // declarations, appellation of origin, etc.) - only send ones that apply
     const typeConfig = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
@@ -470,11 +685,10 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       });
       worker.terminate();
       addLog(`Flash metrics: ${JSON.stringify(res)}`);
-      // use connected-region metric primarily: if the largest contiguous bright region
-      // occupies more than 5% of the image, treat as flash/overexposure
-      const brightRatio = typeof res === 'object' ? res.brightRatio : (typeof res === 'number' ? res : 0);
-      const largestRegionRatio = typeof res === 'object' ? (res.largestRegionRatio || 0) : 0;
-      const flashDetected = (typeof largestRegionRatio === 'number') ? (largestRegionRatio > 0.05) : ((typeof brightRatio === 'number') ? (brightRatio > 0.2) : null);
+      // worker flags a flash when it finds a compact, roughly circular
+      // saturated hotspot (radial falloff) away from the image edges -
+      // large/even bright regions (e.g. white backgrounds) are ignored
+      const flashDetected = typeof res === 'object' && typeof res.flashDetected === 'boolean' ? res.flashDetected : null;
       setHasFlash(flashDetected);
       return flashDetected;
     } catch (err) {
@@ -486,10 +700,14 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
 
   useEffect(() => {
     // when file removed, reset checklist
+    // (skip in viewOnly: on mount `file` is still null until the saved image
+    // finishes loading async, which would otherwise wipe out the stored
+    // isBlurry/hasFlash results set by the initialData population effect)
+    if (viewOnly) return;
     if (!file) {
       setIsBlurry(null); setHasFlash(null);
     }
-  }, [file]);
+  }, [file, viewOnly]);
 
   // don't auto-open modal; modal will be shown after orchestrated checks if needed
 
@@ -564,7 +782,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       // country is excluded: it's manually entered and rarely printed on the
       // label itself, so it's carried over from the form rather than OCR-validated
       const { fm, matches, total } = computeFieldMatches(rawText, {
-        brand, typeDesignation, alcohol: alcoholContent, net: netContents, producer,
+        brand, typeDesignation, alcohol: alcoholContent ? `${alcoholContent}%` : '', net: netContentsDisplay(), producer,
         ...getActiveExtraInputs(),
       });
 
@@ -578,9 +796,11 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
 
   useEffect(() => {
     // recompute whenever parsed fields or user inputs change
+    // (skip in viewOnly: results are loaded from the stored assessment, not recomputed)
+    if (viewOnly) return;
     computeAssessment();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsedFields, brand, typeDesignation, alcoholContent, netContents, producer, country, extraFields, extraApplicable]);
+  }, [parsedFields, brand, typeDesignation, alcoholContent, netContents, netContentsUnit, netContentsSecondary, producer, country, extraFields, extraApplicable]);
 
   // assessment scheduling state
   const assessmentTokenRef = React.useRef(0);
@@ -595,6 +815,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
   const typeConfig = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
 
   const allFieldsFilled = [brand, typeDesignation, alcoholContent, netContents, producer].every(v => (v || '').toString().trim().length > 0)
+    && !netContentsError
     && (!isImported || country.trim().length > 0)
     && typeConfig.required.every((k) => (extraFields[k] || '').trim().length > 0)
     && typeConfig.applicable.every((k) => !extraApplicable[k] || (extraFields[k] || '').trim().length > 0);
@@ -667,7 +888,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       // (country is excluded: it's manually entered and rarely printed on the label)
       const rawText = (parsed || {}).raw || '';
       const { fm, matches, total } = computeFieldMatches(rawText, {
-        brand, typeDesignation, alcohol: alcoholContent, net: netContents, producer,
+        brand, typeDesignation, alcohol: alcoholContent ? `${alcoholContent}%` : '', net: netContentsDisplay(), producer,
         ...getActiveExtraInputs(),
       });
       setFieldMatches(fm);
@@ -746,7 +967,9 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       .filter(Boolean)
       .filter(l => /[A-Za-z0-9]{2,}/.test(l));
 
-    const raw = lines.join('\n');
+    // join with spaces (not newlines) so phrases split across OCR lines
+    // (e.g. "GOVERNMENT\nWARNING:") can still be matched as "GOVERNMENT WARNING"
+    const raw = lines.join(' ');
 
     // detect potential warning start (may be split across lines)
     let warningIdx = -1;
@@ -902,12 +1125,12 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                 </div>
 
                 <div className="field-row">
-                  <label className="field-label">Brand name <span className="required-asterisk">*</span></label>
+                  <label className="field-label">Brand name <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'brand')} onOpen={setInfoModalItems} /></label>
                   <input required disabled={viewOnly} className="field-input" value={brand} onChange={(e) => setBrand(e.target.value)} />
                 </div>
 
                 <div className="field-row">
-                  <label className="field-label">Class / Type designation <span className="required-asterisk">*</span></label>
+                  <label className="field-label">Class / Type designation <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'typeDesignation')} onOpen={setInfoModalItems} /></label>
                   <SearchableSelect
                     required
                     disabled={viewOnly}
@@ -920,17 +1143,83 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                 </div>
 
                 <div className="field-row">
-                  <label className="field-label">Alcohol content <span className="required-asterisk">*</span></label>
-                  <input required disabled={viewOnly} className="field-input" value={alcoholContent} onChange={(e) => setAlcoholContent(e.target.value)} placeholder="e.g. 45% Alc./Vol." />
+                  <label className="field-label">Alcohol content <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'alcoholContent')} onOpen={setInfoModalItems} /></label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input
+                      required
+                      disabled={viewOnly}
+                      className="field-input"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      inputMode="decimal"
+                      value={alcoholContent}
+                      onChange={(e) => setAlcoholContent(e.target.value)}
+                      placeholder="e.g. 5"
+                    />
+                    <span>%</span>
+                    <select
+                      disabled={viewOnly}
+                      className="field-input"
+                      value={alcoholUnit}
+                      onChange={(e) => setAlcoholUnit(e.target.value)}
+                    >
+                      {ALCOHOL_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="field-row">
-                  <label className="field-label">Net contents <span className="required-asterisk">*</span></label>
-                  <input required disabled={viewOnly} className="field-input" value={netContents} onChange={(e) => setNetContents(e.target.value)} placeholder="e.g. 750 mL" />
+                  <label className="field-label">Net contents <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'netContents')} onOpen={setInfoModalItems} /></label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <input
+                      required
+                      disabled={viewOnly}
+                      className="field-input"
+                      type="number"
+                      min="0"
+                      step={netContentsUnit === "mL" ? "1" : (netContentsUnit === "L" ? "0.01" : "0.1")}
+                      inputMode="decimal"
+                      value={netContents}
+                      onChange={(e) => setNetContents(e.target.value)}
+                      placeholder="e.g. 1"
+                      style={{ width: 90 }}
+                    />
+                    <select
+                      disabled={viewOnly}
+                      className="field-input"
+                      value={netContentsUnit}
+                      onChange={(e) => setNetContentsUnit(e.target.value)}
+                    >
+                      {NET_CONTENTS_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                    {UNITS_WITH_FL_OZ_REMAINDER.includes(netContentsUnit) && (
+                      <>
+                        <input
+                          disabled={viewOnly}
+                          className="field-input"
+                          type="number"
+                          min="0"
+                          max="15"
+                          step="1"
+                          inputMode="numeric"
+                          value={netContentsSecondary}
+                          onChange={(e) => setNetContentsSecondary(e.target.value)}
+                          placeholder="0"
+                          style={{ width: 90 }}
+                        />
+                        <span>Fl. Oz</span>
+                      </>
+                    )}
+                  </div>
+                  {netContentsError && (
+                    <span style={{ color: '#ef4444', fontSize: 12 }}>{netContentsError}</span>
+                  )}
                 </div>
 
                 <div className="field-row">
-                  <label className="field-label">Name and address of bottler/producer <span className="required-asterisk">*</span></label>
+                  <label className="field-label">Name and address of bottler/producer <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'producer')} onOpen={setInfoModalItems} /></label>
                   <input required disabled={viewOnly} className="field-input" value={producer} onChange={(e) => setProducer(e.target.value)} />
                 </div>
 
@@ -938,7 +1227,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                   const meta = EXTRA_FIELD_META[key];
                   return (
                     <div className="field-row" key={key}>
-                      <label className="field-label">{meta.label} <span className="required-asterisk">*</span></label>
+                      <label className="field-label">{meta.label} <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, key)} onOpen={setInfoModalItems} /></label>
                       <input
                         required
                         disabled={viewOnly}
@@ -964,6 +1253,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                           onChange={(e) => setExtraApplicable((s) => ({ ...s, [key]: e.target.checked }))}
                         />
                         {meta.label} (if applicable){applicable && <span className="required-asterisk">*</span>}
+                        <InfoButton items={getChecklistItems(typeDesignation, key)} onOpen={setInfoModalItems} />
                       </label>
                       {applicable && (
                         <input
@@ -993,7 +1283,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
 
                 {isImported && (
                   <div className="field-row">
-                    <label className="field-label">Country of origin (imports) <span className="required-asterisk">*</span></label>
+                    <label className="field-label">Country of origin (imports) <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'country')} onOpen={setInfoModalItems} /></label>
                     <SearchableSelect
                       required
                       disabled={viewOnly}
@@ -1013,7 +1303,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
             {/* Checklist panel (step 2) */}
             {step === 2 && (
               <div style={{ padding: 8 }}>
-                <h4 style={{ marginTop: 0 }}>Checks & Assessment</h4>
+                <h4 style={{ marginTop: 0 }}>{viewOnly ? 'Assessment Results' : 'Checks & Assessment'}</h4>
                 <ul style={{ listStyle: 'none', padding: 0 }}>
                   <li style={{ marginBottom: 8 }}>
                     <strong>Checking image quality:</strong>
@@ -1162,7 +1452,9 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       {/* Bottom navigation centered beneath component */}
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14, gridColumn: '1 / -1', width: '100%' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
-          <Button type="button" variant="secondary" onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }} disabled={step === 0}>Previous</Button>
+          {step !== 0 && (
+            <Button type="button" variant="secondary" onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }}>Previous</Button>
+          )}
           {step === 2 ? (
             viewOnly ? null : (
             <Button
@@ -1184,7 +1476,10 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                 if (step === 0) {
                   console.log('View 1 input fields:', { brand, typeDesignation, alcoholContent, netContents, producer, isImported, country, ...getActiveExtraInputs() });
                 }
-                if (step === 1) runAllChecks(); else setStep((s) => Math.min(2, s + 1));
+                if (step === 1) {
+                  if (viewOnly) setStep(2);
+                  else runAllChecks();
+                } else setStep((s) => Math.min(2, s + 1));
               }}
               disabled={(step === 0 && !allFieldsFilled) || (step === 1 && (!file || runningChecks))}
             >
@@ -1213,6 +1508,24 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
               <Button type="button" variant="secondary" onClick={() => setShowConfirmModal(false)}>Decline</Button>
               <Button type="button" onClick={() => { setShowConfirmModal(false); submitForm(); }}>Submit</Button>
             </div>
+          </div>
+        </Modal>
+      )}
+      {infoModalItems && (
+        <Modal onClose={() => setInfoModalItems(null)}>
+          <div style={{ padding: 8 }}>
+            {infoModalItems.map((item, idx) => (
+              <div key={item.mandatory_item_name} style={{ marginTop: idx === 0 ? 0 : 16, paddingTop: idx === 0 ? 0 : 16, borderTop: idx === 0 ? 'none' : '1px solid #eee' }}>
+                <h3 style={{ marginTop: 0 }}>{item.mandatory_item_name}</h3>
+                <p style={{ color: '#333' }}>{item.description}</p>
+                <p style={{ color: '#555', fontSize: 13 }}><strong>Citation:</strong> {item.regulatory_citation}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+                  {item.link_to_citation.map((link) => (
+                    <a key={link} href={link} target="_blank" rel="noopener noreferrer">{link}</a>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </Modal>
       )}

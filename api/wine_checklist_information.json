@@ -1,0 +1,74 @@
+[
+  {
+    "mandatory_item_name": "Brand Name",
+    "description": "Name under which the product will be sold.",
+    "regulatory_citation": "27 CFR 4.33",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.33"]
+  },
+  {
+    "mandatory_item_name": "Designation Class/Type or Statement of Composition",
+    "description": "Class/type designation (e.g., Red Wine, Sparkling Wine, Chardonnay) or a truthful and adequate statement of composition when class is not defined in the regulations; varietal listings may serve as the class/type designation.",
+    "regulatory_citation": "27 CFR 4.21; 27 CFR 4.34; 27 CFR 4.91",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.21","https://www.ecfr.gov/current/title-27/part-4/section-4.34","https://www.ecfr.gov/current/title-27/part-4/section-4.91"]
+  },
+  {
+    "mandatory_item_name": "Appellation of Origin",
+    "description": "Area where the fruit or agricultural product used to make the wine was grown; generally mandatory when the label contains a varietal, vintage, semi-generic type, or estate-bottled claim.",
+    "regulatory_citation": "27 CFR 4.25; 27 CFR 4.34",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.25","https://www.ecfr.gov/current/title-27/part-4/section-4.34"]
+  },
+  {
+    "mandatory_item_name": "Percentage of Foreign Wine",
+    "description": "Disclosure of percentage blend of American and foreign wine when the label refers to foreign wine (e.g., '50% American wine/50% French wine').",
+    "regulatory_citation": "27 CFR 4.32(a)(4)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.32"]
+  },
+  {
+    "mandatory_item_name": "Alcohol Content",
+    "description": "Statement of alcohol content as a percentage by volume; follow the rules for table wine and use acceptable formats/abbreviations.",
+    "regulatory_citation": "27 CFR 4.36",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.36"]
+  },
+  {
+    "mandatory_item_name": "Net Contents",
+    "description": "Volume of wine in the container (e.g., 750 mL, 1 L); must meet approved standards of fill (see 27 CFR 4.72) and applicable exceptions.",
+    "regulatory_citation": "27 CFR 4.37; 27 CFR 4.72; 27 CFR 4.70(b)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.37","https://www.ecfr.gov/current/title-27/part-4/section-4.72","https://www.ecfr.gov/current/title-27/part-4/section-4.70"]
+  },
+  {
+    "mandatory_item_name": "Name and Address",
+    "description": "Name and address (city and State) as listed on the permit; must follow phrases such as 'Bottled By' or 'Imported By' with no intervening text and match permit/application entries.",
+    "regulatory_citation": "27 CFR 4.35",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.35"]
+  },
+  {
+    "mandatory_item_name": "Sulfite Declaration",
+    "description": "If total sulfur dioxide is 10 ppm or more, label must state 'Contains Sulfites' (or equivalent); 'No sulfites added' may be used only with required accompanying language.",
+    "regulatory_citation": "27 CFR 4.32(e)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.32"]
+  },
+  {
+    "mandatory_item_name": "Health Warning Statement",
+    "description": "Government health warning statement must appear exactly as prescribed, with 'GOVERNMENT WARNING' in capital letters and bold type and the prescribed wording and punctuation.",
+    "regulatory_citation": "27 CFR part 16",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-16"]
+  },
+  {
+    "mandatory_item_name": "Country of Origin (imported products only)",
+    "description": "Country of origin marking required for imported wines; must comply with U.S. Customs and Border Protection requirements.",
+    "regulatory_citation": "19 CFR 134.11",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-19/part-134"]
+  },
+  {
+    "mandatory_item_name": "FD&C Yellow No. 5 Declaration",
+    "description": "If FD&C Yellow No. 5 is used in the wine, the label must specifically disclose 'Contains FD&C Yellow No. 5'.",
+    "regulatory_citation": "27 CFR 4.32(c)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.32"]
+  },
+  {
+    "mandatory_item_name": "Cochineal Extract or Carmine Declaration",
+    "description": "If cochineal extract or carmine is used, the label must specifically disclose that fact (e.g., 'Contains Carmine').",
+    "regulatory_citation": "27 CFR 4.32(d)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-4/section-4.32"]
+  }
+]

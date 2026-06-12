@@ -18,8 +18,8 @@ export default function Modal({ children, onClose }: Props) {
   if (!mounted) return null;
 
   return ReactDOM.createPortal(
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal-content">
         <button className="modal-close" aria-label="Close" onClick={onClose}>
           ×
         </button>

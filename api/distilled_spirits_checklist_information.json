@@ -1,0 +1,92 @@
+[
+  {
+    "mandatory_item_name": "Brand Name",
+    "description": "Name under which the product will be sold; must appear in the same field of vision with the alcohol content and class/type designation.",
+    "regulatory_citation": "27 CFR 5.64",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.64"]
+  },
+  {
+    "mandatory_item_name": "Designation Class/Type or Distinctive/Fanciful Name with Statement of Composition",
+    "description": "Class/type designation (e.g., Vodka, Chocolate Flavored Brandy) or a distinctive/fanciful name together with a truthful and adequate statement of composition; must appear in the same field of vision with brand name and alcohol content when required.",
+    "regulatory_citation": "27 CFR 5.165; 27 CFR 5.141",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.165","https://www.ecfr.gov/current/title-27/part-5/section-5.141"]
+  },
+  {
+    "mandatory_item_name": "Alcohol Content",
+    "description": "Statement of alcohol content as a percentage by volume; must appear in the same field of vision with the brand name and class/type designation and use acceptable formats/abbreviations.",
+    "regulatory_citation": "27 CFR 5.65",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.65"]
+  },
+  {
+    "mandatory_item_name": "Net Contents",
+    "description": "Volume of distilled spirits in the container; must meet approved standards of fill and use acceptable metric formats (e.g., 500 mL, 1.5 L).",
+    "regulatory_citation": "27 CFR 5.70; 27 CFR 5.203",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.70","https://www.ecfr.gov/current/title-27/part-5/section-5.203"]
+  },
+  {
+    "mandatory_item_name": "Name and Address (domestic/imported as applicable)",
+    "description": "Name (or trade name) and address (city and State) as listed on your permit; for domestic use 'Bottled By' and for imported 'Imported By' phrasing must immediately precede the name/address with no intervening text.",
+    "regulatory_citation": "27 CFR 5.66; 27 CFR 5.67; 27 CFR 5.68",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.66","https://www.ecfr.gov/current/title-27/part-5/section-5.67","https://www.ecfr.gov/current/title-27/part-5/section-5.68"]
+  },
+  {
+    "mandatory_item_name": "Health Warning Statement",
+    "description": "Government health warning statement must appear exactly as prescribed, with 'GOVERNMENT WARNING' in capital letters and bold type and the prescribed wording and punctuation.",
+    "regulatory_citation": "27 CFR part 16",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-16"]
+  },
+  {
+    "mandatory_item_name": "Country of Origin (imported products only)",
+    "description": "Country of origin statement required for imported distilled spirits; must comply with U.S. Customs and Border Protection rules.",
+    "regulatory_citation": "19 CFR 134.11; 27 CFR 5.69",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-19/part-134","https://www.ecfr.gov/current/title-27/part-5/section-5.69"]
+  },
+  {
+    "mandatory_item_name": "Sulfite Declaration",
+    "description": "If total sulfur dioxide is 10 ppm or more, label must state 'Contains Sulfites' (or equivalent disclosure).",
+    "regulatory_citation": "27 CFR 5.63(c)(7)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.63"]
+  },
+  {
+    "mandatory_item_name": "Presence of Coloring Materials",
+    "description": "When certain coloring materials are used, label must state the specific coloring material (e.g., 'Colored With Caramel') or an appropriate disclosure such as 'Artificially Colored'.",
+    "regulatory_citation": "27 CFR 5.63(c)(6)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.63"]
+  },
+  {
+    "mandatory_item_name": "FD&C Yellow No. 5 Declaration",
+    "description": "If FD&C Yellow No. 5 is used, the label must specifically disclose 'Contains FD&C Yellow No. 5' either as part of a statement of composition or a separate disclosure.",
+    "regulatory_citation": "27 CFR 5.63(c)(5)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.63"]
+  },
+  {
+    "mandatory_item_name": "Cochineal Extract or Carmine Declaration",
+    "description": "If cochineal extract or carmine is used, the label must specifically disclose that fact (e.g., 'Contains Carmine').",
+    "regulatory_citation": "27 CFR 5.63(c)(6)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.63"]
+  },
+  {
+    "mandatory_item_name": "Treatment with Wood",
+    "description": "For whisky and brandy treated with wood other than contact with oak containers, label must state 'Colored and flavored with wood' (or similar) when applicable, subject to exceptions and limits.",
+    "regulatory_citation": "27 CFR 5.73",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.73"]
+  },
+  {
+    "mandatory_item_name": "Commodity Statements (Presence of Neutral Spirits / Commodity of Distillation)",
+    "description": "When neutral spirits are used in blending/rectification, disclose percentage of neutral spirits and the commodity from which distilled; for neutral spirits or gin from continuous distillation, state the commodity (e.g., 'Distilled from Potato').",
+    "regulatory_citation": "27 CFR 5.71",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.71"]
+  },
+  {
+    "mandatory_item_name": "State of Distillation",
+    "description": "For certain U.S. whiskies, the State of distillation must be shown if the whisky is not distilled in the State given in the address on the label.",
+    "regulatory_citation": "27 CFR 5.66(f)",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.66"]
+  },
+  {
+    "mandatory_item_name": "Statement of Age",
+    "description": "Age statements (e.g., '3 Years Old', 'Aged not less than 6 months') are mandatory in specified circumstances and must use approved formats.",
+    "regulatory_citation": "27 CFR 5.74",
+    "link_to_citation": ["https://www.ecfr.gov/current/title-27/part-5/section-5.74"]
+  }
+]
