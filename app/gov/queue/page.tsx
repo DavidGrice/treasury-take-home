@@ -22,6 +22,10 @@ export default function GovQueuePage() {
   const [viewing, setViewing] = useState<any | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("Submitted");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("All");
+  const [idFilter, setIdFilter] = useState("All");
+  const [brandFilter, setBrandFilter] = useState("All");
+  const [scoreFilter, setScoreFilter] = useState("All");
+  const [dateFilter, setDateFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("submitted_at");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -57,13 +61,43 @@ export default function GovQueuePage() {
   const approvedCount = forms.filter((f) => f.status === "Approved").length;
   const rejectedCount = forms.filter((f) => f.status === "Rejected").length;
 
-  const visibleForms = forms
-    .filter((f) => f.status === filter)
-    .filter((f) => assigneeFilter === "All" || f.assigned_to === assigneeFilter);
+  const scoreLabel = (f: any) => (f.assessment_score === null || f.assessment_score === undefined ? "N/A" : `${f.assessment_score}%`);
+
+  const statusFilteredForms = forms.filter((f) => f.status === filter);
+
+  const visibleForms = statusFilteredForms
+    .filter((f) => assigneeFilter === "All" || f.assigned_to === assigneeFilter)
+    .filter((f) => idFilter === "All" || String(f.id) === idFilter)
+    .filter((f) => brandFilter === "All" || (f.brand || "(no brand)") === brandFilter)
+    .filter((f) => scoreFilter === "All" || scoreLabel(f) === scoreFilter)
+    .filter((f) => dateFilter === "All" || new Date(f.submitted_at).toLocaleDateString() === dateFilter);
+
+  // populate each filter dropdown with only the values present within the
+  // currently selected status tab (In Queue/Accepted/Rejected)
+  const idOptions = Array.from(new Set(statusFilteredForms.map((f) => String(f.id)))).sort();
+  const brandOptions = Array.from(new Set(statusFilteredForms.map((f) => f.brand || "(no brand)"))).sort();
+  const scoreOptions = Array.from(new Set(statusFilteredForms.map(scoreLabel))).sort((a, b) => {
+    if (a === "N/A") return 1;
+    if (b === "N/A") return -1;
+    return parseInt(b) - parseInt(a);
+  });
+  const submittedDates = Array.from(new Set(statusFilteredForms.map((f) => new Date(f.submitted_at).toLocaleDateString())))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
   // gov queue defaults to oldest-first by submitted date, but any column
   // can be sorted via the table headers
   const sortedForms = sortSubmissions(visibleForms, sortKey, sortDir);
+
+  // switching the status tab can invalidate the currently selected column
+  // filters (e.g. an ID that only exists under "Accepted"), so reset them
+  const handleStatusFilter = (next: StatusFilter) => {
+    setFilter(next);
+    setAssigneeFilter("All");
+    setIdFilter("All");
+    setBrandFilter("All");
+    setScoreFilter("All");
+    setDateFilter("All");
+  };
 
   return (
     <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -74,26 +108,12 @@ export default function GovQueuePage() {
       </div>
       <DashboardBox
         topItems={[
-          <FilterStat key="queue" label="In Queue" count={queueCount} active={filter === "Submitted"} onSelect={() => setFilter("Submitted")} />,
-          <FilterStat key="accepted" label="Accepted" count={approvedCount} active={filter === "Approved"} onSelect={() => setFilter("Approved")} />,
-          <FilterStat key="rejected" label="Rejected" count={rejectedCount} active={filter === "Rejected"} onSelect={() => setFilter("Rejected")} />,
+          <FilterStat key="queue" label="In Queue" count={queueCount} active={filter === "Submitted"} onSelect={() => handleStatusFilter("Submitted")} />,
+          <FilterStat key="accepted" label="Accepted" count={approvedCount} active={filter === "Approved"} onSelect={() => handleStatusFilter("Approved")} />,
+          <FilterStat key="rejected" label="Rejected" count={rejectedCount} active={filter === "Rejected"} onSelect={() => handleStatusFilter("Rejected")} />,
         ]}
       >
         <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 12 }}>
-            <label htmlFor="assignee-filter" style={{ fontSize: 13, color: '#666' }}>Assigned to</label>
-            <select
-              id="assignee-filter"
-              className="input"
-              value={assigneeFilter}
-              onChange={(e) => setAssigneeFilter(e.target.value)}
-            >
-              <option value="All">All</option>
-              {EMPLOYEES.map((emp) => (
-                <option key={emp.id} value={emp.id}>{emp.name}</option>
-              ))}
-            </select>
-          </div>
           {loading ? (
             <Spinner label="Loading queue..." />
           ) : (
@@ -109,6 +129,75 @@ export default function GovQueuePage() {
                   <SortableTh label="Assigned To" sortKey="assigned_to" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <th className="sortable-th" style={{ padding: '8px 6px', position: 'sticky', top: 0, cursor: 'default' }}></th>
                 </tr>
+                <tr style={{ borderBottom: '1px solid #eee' }}>
+                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                    <select
+                      className="input"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      value={idFilter}
+                      onChange={(e) => setIdFilter(e.target.value)}
+                    >
+                      <option value="All">All</option>
+                      {idOptions.map((id) => (
+                        <option key={id} value={id}>{id}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                    <select
+                      className="input"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      value={brandFilter}
+                      onChange={(e) => setBrandFilter(e.target.value)}
+                    >
+                      <option value="All">All</option>
+                      {brandOptions.map((b) => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
+                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                    <select
+                      className="input"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      value={scoreFilter}
+                      onChange={(e) => setScoreFilter(e.target.value)}
+                    >
+                      <option value="All">All</option>
+                      {scoreOptions.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                    <select
+                      className="input"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      value={dateFilter}
+                      onChange={(e) => setDateFilter(e.target.value)}
+                    >
+                      <option value="All">All</option>
+                      {submittedDates.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                    <select
+                      className="input"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      value={assigneeFilter}
+                      onChange={(e) => setAssigneeFilter(e.target.value)}
+                    >
+                      <option value="All">All</option>
+                      {EMPLOYEES.map((emp) => (
+                        <option key={emp.id} value={emp.id}>{emp.name}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
+                </tr>
               </thead>
               <tbody>
                 {sortedForms.length === 0 ? (
@@ -121,7 +210,7 @@ export default function GovQueuePage() {
                       <td style={{ padding: '8px 6px', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={f.id}>{f.id}</td>
                       <td style={{ padding: '8px 6px' }}>{f.brand || "(no brand)"}</td>
                       <td style={{ padding: '8px 6px' }}>{f.status}</td>
-                      <td style={{ padding: '8px 6px' }}>{f.assessment_score === null || f.assessment_score === undefined ? 'N/A' : `${f.assessment_score}%`}</td>
+                      <td style={{ padding: '8px 6px' }}>{scoreLabel(f)}</td>
                       <td style={{ padding: '8px 6px' }}>{new Date(f.submitted_at).toLocaleString()}</td>
                       <td style={{ padding: '8px 6px' }}>{getEmployeeName(f.assigned_to)}</td>
                       <td style={{ padding: '8px 6px' }}>

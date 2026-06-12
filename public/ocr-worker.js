@@ -45,6 +45,48 @@ async function ensureWorker() {
   return null;
 }
 
+// rotate a canvas by 0/90/180/270 degrees (clockwise) into a new canvas,
+// swapping width/height for 90 and 270 so the rotated content isn't clipped
+function rotateCanvas(srcCanvas, angle) {
+  if (angle === 0) return srcCanvas;
+  const w = srcCanvas.width;
+  const h = srcCanvas.height;
+  const canvas = (angle === 90 || angle === 270) ? new OffscreenCanvas(h, w) : new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext('2d');
+  switch (angle) {
+    case 90:
+      ctx.translate(h, 0);
+      ctx.rotate(Math.PI / 2);
+      break;
+    case 180:
+      ctx.translate(w, h);
+      ctx.rotate(Math.PI);
+      break;
+    case 270:
+      ctx.translate(0, w);
+      ctx.rotate(-Math.PI / 2);
+      break;
+  }
+  ctx.drawImage(srcCanvas, 0, 0);
+  return canvas;
+}
+
+// run OCR on a single canvas crop and return its recognized text/confidence
+async function recognizeCanvas(canvas, tessWorker) {
+  const cropBlob = await canvas.convertToBlob({ type: 'image/png' });
+  if (tessWorker) {
+    const { data } = await tessWorker.recognize(cropBlob);
+    return { text: data?.text?.trim() || '', confidence: typeof data?.confidence === 'number' ? data.confidence : null };
+  } else if (typeof Tesseract !== 'undefined' && typeof Tesseract.recognize === 'function') {
+    const psm = Tesseract.PSM ? Tesseract.PSM.SINGLE_BLOCK : '6';
+    const res = await Tesseract.recognize(cropBlob, 'eng', { tessedit_pageseg_mode: psm });
+    const text = (res && res.data && res.data.text) ? res.data.text.trim() : '';
+    const confidence = (res && res.data && typeof res.data.confidence === 'number') ? res.data.confidence : null;
+    return { text, confidence };
+  }
+  throw new Error('Tesseract not available in worker');
+}
+
 self.onmessage = async (e) => {
   const { type } = e.data;
   if (type === 'ocr') {
@@ -66,32 +108,48 @@ self.onmessage = async (e) => {
         const y = Math.max(0, r.y - PAD);
         const w = Math.min(bmp.width - x, r.width + PAD * 2);
         const h = Math.min(bmp.height - y, r.height + PAD * 2);
-        const canvas = new OffscreenCanvas(Math.round(w * SCALE), Math.round(h * SCALE));
+        const scaledW = Math.round(w * SCALE);
+        const scaledH = Math.round(h * SCALE);
+        // tiny slivers from contour noise can't be scaled by tesseract and just
+        // spam "Image too small to scale" / "Line cannot be recognized" warnings
+        const MIN_DIM = 6;
+        if (scaledW < MIN_DIM || scaledH < MIN_DIM) {
+          results.push({ rect: r, text: '', confidence: null, rotation: 0 });
+          continue;
+        }
+        const canvas = new OffscreenCanvas(scaledW, scaledH);
         const ctx = canvas.getContext('2d');
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(bmp, x, y, w, h, 0, 0, canvas.width, canvas.height);
-        const cropBlob = await canvas.convertToBlob({ type: 'image/png' });
         try {
-          let text = '';
-          let confidence = null;
-          if (tessWorker) {
-            const { data } = await tessWorker.recognize(cropBlob);
-            text = data?.text?.trim() || '';
-            confidence = typeof data?.confidence === 'number' ? data.confidence : null;
-          } else if (typeof Tesseract !== 'undefined' && typeof Tesseract.recognize === 'function') {
-            const psm = Tesseract.PSM ? Tesseract.PSM.SINGLE_BLOCK : '6';
-            const res = await Tesseract.recognize(cropBlob, 'eng', { tessedit_pageseg_mode: psm });
-            text = (res && res.data && res.data.text) ? res.data.text.trim() : '';
-            confidence = (res && res.data && typeof res.data.confidence === 'number') ? res.data.confidence : null;
-          } else {
-            throw new Error('Tesseract not available in worker');
+          // labels aren't always printed horizontally (e.g. the "GOVERNMENT
+          // WARNING" block printed sideways). Try the orientation that matches
+          // the crop's aspect ratio first, then its 180deg flip, then the
+          // perpendicular orientations - stopping early once a rotation
+          // produces a confident, non-empty read to keep total OCR time down
+          const tall = scaledH > scaledW;
+          const angles = tall ? [90, 270, 0, 180] : [0, 180, 90, 270];
+          let best = { text: '', confidence: null, rotation: 0 };
+          for (const angle of angles) {
+            try {
+              const rotated = rotateCanvas(canvas, angle);
+              const { text, confidence } = await recognizeCanvas(rotated, tessWorker);
+              const better =
+                (text.length > 0 && best.text.length === 0) ||
+                (text.length > 0 && best.text.length > 0 && (confidence ?? 0) > (best.confidence ?? 0));
+              if (better) best = { text, confidence, rotation: angle };
+              // good enough - skip the remaining rotations for this rect
+              if (text.length > 0 && (confidence ?? 0) >= 60) break;
+            } catch (rotErr) {
+              self.postMessage({ type: 'log', text: `OCR worker: rect ${i} rotation ${angle} failed ${String(rotErr)}` });
+            }
           }
-          results.push({ rect: r, text, confidence });
-          self.postMessage({ type: 'log', text: `OCR worker: rect ${i} done (confidence=${confidence})` });
+          results.push({ rect: r, text: best.text, confidence: best.confidence, rotation: best.rotation });
+          self.postMessage({ type: 'log', text: `OCR worker: rect ${i} done (confidence=${best.confidence}, rotation=${best.rotation})` });
         } catch (err) {
           self.postMessage({ type: 'log', text: `OCR worker: rect ${i} failed ${String(err)}` });
-          results.push({ rect: r, text: '', confidence: null });
+          results.push({ rect: r, text: '', confidence: null, rotation: 0 });
         }
       }
       bmp.close();

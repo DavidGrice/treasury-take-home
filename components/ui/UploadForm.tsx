@@ -4,6 +4,7 @@ import Button from "./Button";
 import SecondaryButton from "./SecondaryButton";
 import ImageAnnotator from "./ImageAnnotator";
 import Modal from "./Modal";
+import Spinner from "./Spinner";
 import SearchableSelect from "./SearchableSelect";
 import { COUNTRIES } from "./countries";
 import { ChecklistItem, getChecklistItems } from "./checklistData";
@@ -155,6 +156,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
   const [showModal, setShowModal] = useState(false);
   const [modalText, setModalText] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -324,6 +326,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     });
     if (file) formData.append("file", file);
 
+    setIsSubmitting(true);
     try {
       const res = await fetch("/api/submissions", { method: "POST", body: formData });
       if (!res.ok) throw new Error(`Request failed: ${res.status}`);
@@ -335,6 +338,8 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       console.error("Failed to submit form:", err);
       setModalText('Failed to submit form. Please try again.');
       setShowModal(true);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -485,7 +490,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       const worker = new Worker('/ocr-worker.js');
       worker.postMessage({ type: 'ocr', buffer, rects }, [buffer]);
       const res = await new Promise<any>((res, rej) => {
-        const t = setTimeout(() => rej(new Error('ocr worker timeout')), 120000);
+        const t = setTimeout(() => rej(new Error('ocr worker timeout')), 240000);
         worker.onmessage = (ev) => {
           if (ev.data.type === 'log') addLog(ev.data.text);
           else if (ev.data.type === 'result') { clearTimeout(t); res(ev.data.results); }
@@ -1178,6 +1183,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                 {typeConfig.applicable.map((key) => {
                   const meta = EXTRA_FIELD_META[key];
                   const applicable = !!extraApplicable[key];
+
                   return (
                     <div className="field-row" key={key}>
                       <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1388,7 +1394,13 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14, gridColumn: '1 / -1', width: '100%' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
           {step !== 0 && (
-            <SecondaryButton type="button" onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }}>Previous</SecondaryButton>
+            <SecondaryButton
+              type="button"
+              onClick={(e) => { e.preventDefault(); setStep((s) => Math.max(0, s - 1)); }}
+              disabled={runningChecks || isSubmitting}
+            >
+              Previous
+            </SecondaryButton>
           )}
           {step === 2 ? (
             viewOnly ? null : (
@@ -1398,7 +1410,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                 e.preventDefault();
                 setShowConfirmModal(true);
               }}
-              disabled={!analysisComplete || runningChecks || isBlurry === true || hasFlash === true}
+              disabled={!analysisComplete || runningChecks || isBlurry === true || hasFlash === true || isSubmitting}
             >
               Save / Submit
             </Button>
@@ -1432,6 +1444,11 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
               <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>Close</Button>
             </div>
           </div>
+        </Modal>
+      )}
+      {isSubmitting && (
+        <Modal>
+          <Spinner label="Submitting..." />
         </Modal>
       )}
       {showConfirmModal && (
