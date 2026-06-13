@@ -51,7 +51,8 @@ export const IMAGE_QUALITY_FIELDS: { key: string; label: string }[] = [
 
 export const netContentsDisplay = (submission: any) => {
   const sec = submission.net_contents_secondary;
-  return `${submission.net_contents || ""} ${submission.net_contents_unit || ""}${sec ? ` ${sec} Fl. Oz` : ""}`.trim();
+  const secDisplay = sec && Number(sec) > 0 ? ` ${sec} Fl. Oz` : "";
+  return `${submission.net_contents || ""} ${submission.net_contents_unit || ""}${secDisplay}`.trim();
 };
 
 export const fieldValue = (submission: any, key: string) => {

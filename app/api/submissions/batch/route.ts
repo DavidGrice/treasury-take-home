@@ -38,49 +38,68 @@ export async function POST(request: NextRequest) {
   const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
   const filesByName = new Map(files.map((f) => [f.name, f]));
 
-  const batchId = crypto.randomUUID();
-  const ids: string[] = [];
-
   for (const row of rows) {
-    const file = filesByName.get(row.filename);
-    if (!file) {
+    if (!filesByName.has(row.filename)) {
       return NextResponse.json({ error: `No uploaded file matches filename "${row.filename}"` }, { status: 400 });
     }
-
-    const id = generateSubmissionId();
-    const assignedTo = assignReviewer();
-    const imageUrls = await uploadImages(id, [file]);
-    const imageUrl = imageUrls[0] ?? null;
-
-    const values: Record<string, string> = {};
-    for (const key of ROW_FIELDS) values[key] = row.fields[key] || "";
-
-    await sql`
-      INSERT INTO submissions (
-        id, brand, type_designation, alcohol_content, net_contents,
-        producer, country, warning, image_url, image_urls,
-        is_imported, age_statement, color_disclosure, sulfite_aspartame,
-        sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine,
-        alcohol_unit, net_contents_unit, net_contents_secondary, assigned_to,
-        status, batch_id
-      ) VALUES (
-        ${id}, ${values.brand}, ${values.type_designation}, ${values.alcohol_content}, ${values.net_contents},
-        ${values.producer}, ${values.country}, ${values.warning}, ${imageUrl}, ${JSON.stringify(imageUrls)}::jsonb,
-        ${values.is_imported}, ${values.age_statement}, ${values.color_disclosure}, ${values.sulfite_aspartame},
-        ${values.sulfite_declaration}, ${values.commodity_statement}, ${values.appellation_of_origin}, ${values.percentage_foreign_wine},
-        ${values.alcohol_unit}, ${values.net_contents_unit}, ${values.net_contents_secondary}, ${assignedTo},
-        ${BATCH_STATUSES.QUEUED}, ${batchId}
-      )
-    `;
-
-    await sql`
-      INSERT INTO assessments (submission_id) VALUES (${id})
-    `;
-
-    ids.push(id);
   }
 
-  return NextResponse.json({ batch_id: batchId, count: ids.length, ids }, { status: 201 });
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const batchId = crypto.randomUUID();
+      const ids: string[] = [];
+      const total = rows.length;
+
+      try {
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          const file = filesByName.get(row.filename)!;
+
+          const id = generateSubmissionId();
+          const assignedTo = assignReviewer();
+          const imageUrls = await uploadImages(id, [file]);
+          const imageUrl = imageUrls[0] ?? null;
+
+          const values: Record<string, string> = {};
+          for (const key of ROW_FIELDS) values[key] = row.fields[key] || "";
+
+          await sql`
+            INSERT INTO submissions (
+              id, brand, type_designation, alcohol_content, net_contents,
+              producer, country, warning, image_url, image_urls,
+              is_imported, age_statement, color_disclosure, sulfite_aspartame,
+              sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine,
+              alcohol_unit, net_contents_unit, net_contents_secondary, assigned_to,
+              status, batch_id
+            ) VALUES (
+              ${id}, ${values.brand}, ${values.type_designation}, ${values.alcohol_content}, ${values.net_contents},
+              ${values.producer}, ${values.country}, ${values.warning}, ${imageUrl}, ${JSON.stringify(imageUrls)}::jsonb,
+              ${values.is_imported}, ${values.age_statement}, ${values.color_disclosure}, ${values.sulfite_aspartame},
+              ${values.sulfite_declaration}, ${values.commodity_statement}, ${values.appellation_of_origin}, ${values.percentage_foreign_wine},
+              ${values.alcohol_unit}, ${values.net_contents_unit}, ${values.net_contents_secondary}, ${assignedTo},
+              ${BATCH_STATUSES.QUEUED}, ${batchId}
+            )
+          `;
+
+          await sql`
+            INSERT INTO assessments (submission_id) VALUES (${id})
+          `;
+
+          ids.push(id);
+          controller.enqueue(encoder.encode(JSON.stringify({ type: "progress", done: i + 1, total }) + "\n"));
+        }
+
+        controller.enqueue(encoder.encode(JSON.stringify({ type: "done", batch_id: batchId, count: ids.length, ids }) + "\n"));
+      } catch (err) {
+        controller.enqueue(encoder.encode(JSON.stringify({ type: "error", error: err instanceof Error ? err.message : "Upload failed" }) + "\n"));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new NextResponse(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8" } });
 }
 
 // PATCH { ids: string[], status: "Submitted" } : bulk-flip "Batch Ready" rows
@@ -114,7 +133,15 @@ export async function GET(request: NextRequest) {
   const statusParam = searchParams.get("status");
 
   if (!batchId) {
-    return NextResponse.json({ error: "Missing 'batch_id' query parameter" }, { status: 400 });
+    const { rows } = await sql`
+      SELECT batch_id, COUNT(*)::int AS total, MIN(submitted_at) AS started_at,
+        COUNT(*) FILTER (WHERE status NOT IN ('Submitted', 'Approved', 'Rejected'))::int AS pending
+      FROM submissions
+      WHERE batch_id IS NOT NULL
+      GROUP BY batch_id
+      ORDER BY MIN(submitted_at) DESC
+    `;
+    return NextResponse.json(rows);
   }
 
   let query = `${SUBMISSION_WITH_ASSESSMENT_SELECT} WHERE s.batch_id = $1`;

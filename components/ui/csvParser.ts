@@ -55,7 +55,7 @@ export function parseCSV(text: string): { headers: string[]; rows: Record<string
   return { headers, rows };
 }
 
-const TYPE_DESIGNATIONS = ["Malt Beverage", "Wine", "Distilled Spirits"];
+const TYPE_DESIGNATIONS = ["Beer", "Malt Beverage", "Wine", "Distilled Spirits"];
 const ALCOHOL_UNITS = ["Alc./Vol.", "Alc./Wt."];
 const NET_CONTENTS_UNITS = ["Fl. Oz", "Pint", "Quart", "Gallon", "mL", "L"];
 

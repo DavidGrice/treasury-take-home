@@ -117,7 +117,7 @@ export default function GovQueuePage() {
           {loading ? (
             <Spinner label="Loading queue..." />
           ) : (
-          <div style={{ maxHeight: 320, overflowY: 'auto', marginTop: 12 }}>
+          <div style={{ maxHeight: 600, overflowY: 'auto', marginTop: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ textAlign: 'left', borderBottom: '1px solid #eee' }}>
@@ -127,10 +127,10 @@ export default function GovQueuePage() {
                   <SortableTh label="Score" sortKey="assessment_score" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="Submitted Date" sortKey="submitted_at" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="Assigned To" sortKey="assigned_to" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                  <th className="sortable-th" style={{ padding: '8px 6px', position: 'sticky', top: 0, cursor: 'default' }}></th>
+                  <th className="static-th" style={{ padding: '8px 6px', position: 'sticky', top: 0, cursor: 'default' }}></th>
                 </tr>
                 <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
                     <select
                       className="input"
                       style={{ width: '100%', boxSizing: 'border-box' }}
@@ -143,7 +143,7 @@ export default function GovQueuePage() {
                       ))}
                     </select>
                   </th>
-                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
                     <select
                       className="input"
                       style={{ width: '100%', boxSizing: 'border-box' }}
@@ -156,8 +156,8 @@ export default function GovQueuePage() {
                       ))}
                     </select>
                   </th>
-                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
-                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
+                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
                     <select
                       className="input"
                       style={{ width: '100%', boxSizing: 'border-box' }}
@@ -170,7 +170,7 @@ export default function GovQueuePage() {
                       ))}
                     </select>
                   </th>
-                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
                     <select
                       className="input"
                       style={{ width: '100%', boxSizing: 'border-box' }}
@@ -183,7 +183,7 @@ export default function GovQueuePage() {
                       ))}
                     </select>
                   </th>
-                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
                     <select
                       className="input"
                       style={{ width: '100%', boxSizing: 'border-box' }}
@@ -196,7 +196,7 @@ export default function GovQueuePage() {
                       ))}
                     </select>
                   </th>
-                  <th className="sortable-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
+                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
                 </tr>
               </thead>
               <tbody>

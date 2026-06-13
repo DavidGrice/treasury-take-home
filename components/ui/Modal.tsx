@@ -24,7 +24,7 @@ export default function Modal({ children, onClose, className }: Props) {
         <button className="modal-close" aria-label="Close" onClick={onClose}>
           ×
         </button>
-        {children}
+        <div className="modal-body">{children}</div>
       </div>
     </div>,
     document.body

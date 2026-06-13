@@ -71,7 +71,9 @@ body {
 
 /* Form controls */
 .form-row { display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
-.input { padding:8px; border-radius:6px; border:1px solid #ddd; }
+.input { padding:8px; border-radius:6px; border:1px solid #ddd; box-sizing: border-box; transition: border-color 120ms ease, box-shadow 120ms ease; }
+.input:hover { border-color: #0b5fff; }
+.input:focus { outline: none; border-color: #0b5fff; box-shadow: 0 0 0 3px rgba(11, 95, 255, 0.15); }
 
 /* Utility text sizes */
 .text-xl { font-size: 1.25rem; }
@@ -138,7 +140,8 @@ body {
 }
 
 /* table column headers - darker than the table body so they stand out,
-   with a hover-darken effect on sortable columns */
+   with a hover-darken effect on sortable columns. The actively-sorted
+   column gets a blue tint so it's clearly distinguishable at a glance */
 .sortable-th {
   background: #e5e7eb;
   transition: background-color 120ms ease;
@@ -146,6 +149,27 @@ body {
 
 .sortable-th:hover {
   background-color: #d1d5db;
+}
+
+.sortable-th--active {
+  background-color: #dbeafe;
+}
+
+.sortable-th--active:hover {
+  background-color: #bfdbfe;
+}
+
+/* filter row beneath the sortable headers - kept visually distinct (no gray
+   fill) so it doesn't compete with the sort-header row above it */
+.filter-th {
+  background: #fff;
+}
+
+/* non-sortable header cell (e.g. above the "View" action column) - same
+   gray fill as the sortable headers, but no hover-darken since it's not
+   clickable */
+.static-th {
+  background: #e5e7eb;
 }
 
 
@@ -167,6 +191,18 @@ body {
   justify-content:center;
   min-height: 220px;
   background: #fbfbfb;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+/* smaller drop zones for forms that just need a single file picker (e.g.
+   bulk-upload's CSV/photo inputs), not a full image-preview panel */
+.upload-area--compact {
+  min-height: 120px;
+}
+
+.upload-area:hover {
+  border-color: #0b5fff;
+  background: #f3f6ff;
 }
 
 .upload-drop { color: #666; font-size: 14px; }
@@ -216,12 +252,36 @@ body {
   max-width: 900px;
   width: 100%;
   padding: 20px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 .modal-content { position: relative; }
+
+/* scrollable body for modals whose content can exceed the viewport - keeps
+   the close button (absolutely positioned with negative offsets) outside the
+   scroll area so it isn't clipped, and gives an always-visible scrollbar */
+.modal-body {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  min-height: 0;
+  padding-right: 20px;
+  box-sizing: border-box;
+}
+.modal-body::-webkit-scrollbar { width: 10px; }
+.modal-body::-webkit-scrollbar-thumb { background: #ccc; border-radius: 5px; }
+.modal-body::-webkit-scrollbar-track { background: transparent; }
 /* gov reviewers work on 1920x1080 monitors - give the review modal more
    breathing room so the form fields and label image can sit side by side */
 .modal-content--wide {
   max-width: 1400px;
+}
+
+/* small status modals (e.g. upload progress/result) - don't need the full
+   900px default width */
+.modal-content--narrow {
+  max-width: 420px;
 }
 .modal-close {
   position: absolute;

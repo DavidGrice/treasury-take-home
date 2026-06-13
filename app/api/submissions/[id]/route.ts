@@ -67,14 +67,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       sulfite_aspartame, sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine,
       alcohol_unit, net_contents_unit, net_contents_secondary, rejection_reasons, rejection_comment,
       assessment_blurry, assessment_flash, assessment_warning_present, assessment_surgeon_general,
-      assessment_ocr_confidence, assessment_field_matches, assigned_to, decided_by, certificate_number
+      assessment_ocr_confidence, assessment_field_matches, assigned_to, decided_by, certificate_number, batch_id
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8,
       $9, $10, $11::jsonb, $12, $13, $14, $15, $16,
       $17, $18, $19, $20, $21,
       $22, $23, $24, $25::jsonb, $26,
       $27, $28, $29, $30,
-      $31, $32::jsonb, $33, $34, $35
+      $31, $32::jsonb, $33, $34, $35, $36
     )`,
     [
       row.id, row.brand, row.type_designation, row.alcohol_content, row.net_contents, row.producer, row.country, row.warning,
@@ -82,7 +82,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       row.sulfite_aspartame, row.sulfite_declaration, row.commodity_statement, row.appellation_of_origin, row.percentage_foreign_wine,
       row.alcohol_unit, row.net_contents_unit, row.net_contents_secondary, rejectionReasons, rejectionComment,
       row.assessment_blurry, row.assessment_flash, row.assessment_warning_present, row.assessment_surgeon_general,
-      row.assessment_ocr_confidence, fieldMatches, row.assigned_to, decidedBy, certificateNumber,
+      row.assessment_ocr_confidence, fieldMatches, row.assigned_to, decidedBy, certificateNumber, row.batch_id,
     ]
   );
 
@@ -144,10 +144,11 @@ async function handleBatchStatusUpdate(id: string, status: string, body: any) {
     const fields = body.fields || {};
     const a = body.assessment;
 
-    if (Object.keys(fields).length > 0) {
+    const correctedEntries = Object.entries(fields).filter(([key]) => CORRECTABLE_FIELDS.includes(key));
+    if (correctedEntries.length > 0) {
       const setClauses: string[] = [];
       const values: any[] = [];
-      for (const [key, value] of Object.entries(fields)) {
+      for (const [key, value] of correctedEntries) {
         setClauses.push(`${key} = $${values.length + 1}`);
         values.push(value);
       }
@@ -158,8 +159,19 @@ async function handleBatchStatusUpdate(id: string, status: string, body: any) {
     if (a) {
       const score = a.score ?? null;
       const fieldMatchesJson = a.fieldMatches ? JSON.stringify(a.fieldMatches) : null;
-      await sql`UPDATE assessments SET assessment_score = ${score}, field_matches = ${fieldMatchesJson}::jsonb WHERE submission_id = ${id}`;
       await sql`UPDATE submissions SET assessment_score = ${score} WHERE id = ${id}`;
+      await sql`
+        UPDATE assessments SET
+          blurry = ${a.blurry ?? null},
+          flash = ${a.flash ?? null},
+          warning_present = ${a.warningPresent ?? null},
+          surgeon_general = ${a.surgeonGeneral ?? null},
+          ocr_confidence = ${a.ocrConfidence ?? null},
+          assessment_score = ${score},
+          field_matches = ${fieldMatchesJson}::jsonb,
+          ocr_raw = ${a.ocrRaw ?? null}
+        WHERE submission_id = ${id}
+      `;
     }
 
     await sql`UPDATE submissions SET status = 'Submitted' WHERE id = ${id}`;
