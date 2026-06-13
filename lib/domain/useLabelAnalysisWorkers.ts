@@ -12,14 +12,63 @@ export function useLabelAnalysisWorkers(onLog?: (msg: string) => void) {
   const ocrWorkerPoolRef = useRef<Worker[]>([]);
   const reqIdRef = useRef(0);
 
+  // Item 4: lightweight in-memory cache for OCR parsed results.
+  // Only stores the final small ParsedFields (strings + tiny objects), never image data or buffers.
+  // Capped to keep memory footprint tiny. Content-based key (size + cheap hash of first bytes)
+  // works for both batch (stable server URLs -> same content) and interactive re-uploads.
+  const ocrCacheRef = useRef(new Map<string, ParsedFields>());
+  const MAX_OCR_CACHE = 8; // lowered to reduce memory pressure from holding parsed results across many photos
+
+  // Analysis buffer caching disabled for now (was holding ArrayBuffers and contributing to freezes).
+  // We keep only the cheap parsed OCR result cache (strings/objects).
+  // const imageAnalysisCacheRef = ...
+  // const MAX_ANALYSIS_CACHE = ...
+
   useEffect(() => {
     return () => {
       opencvWorkerRef.current?.terminate();
       ocrWorkerPoolRef.current.forEach((w) => w.terminate());
+      // Clear OCR result cache on unmount.
+      ocrCacheRef.current.clear();
     };
   }, []);
 
   const addLog = (msg: string) => onLog?.(msg);
+
+  // Item 4 helpers - cheap content signature + LRU cache ops (max 25 entries)
+  function bufferSig(buf: ArrayBuffer): string {
+    const len = buf.byteLength;
+    // sample first ~1k bytes (every 8th for speed) - enough to distinguish different label photos
+    const view = new Uint8Array(buf, 0, Math.min(1024, len));
+    let h = len;
+    for (let i = 0; i < view.length; i += 8) {
+      h = ((h << 5) - h + view[i]) | 0;
+    }
+    return `${len}:${h}`;
+  }
+
+  function getCached(key: string): ParsedFields | undefined {
+    const c = ocrCacheRef.current;
+    if (!c.has(key)) return undefined;
+    const val = c.get(key)!;
+    c.delete(key);
+    c.set(key, val); // move to most-recent
+    return val;
+  }
+
+  function setCached(key: string, val: ParsedFields) {
+    const c = ocrCacheRef.current;
+    if (c.has(key)) c.delete(key);
+    c.set(key, val);
+    while (c.size > MAX_OCR_CACHE) {
+      const oldest = c.keys().next().value;
+      if (oldest) c.delete(oldest);
+    }
+  }
+
+  function makeOcrCacheKey(orientations: Array<{ buffer: ArrayBuffer }>): string {
+    return orientations.map(o => bufferSig(o.buffer)).join('|');
+  }
 
   // single OpenCV worker call: downscales the image once and returns blur
   // variance, flash detection, and candidate text regions (+ the downscaled
@@ -92,6 +141,9 @@ export function useLabelAnalysisWorkers(onLog?: (msg: string) => void) {
 
   // run OCR on the candidate text regions from runImageAnalysis (or a
   // main-thread fallback), and parse the results into label fields
+  // Item 4: check lightweight cache first using content signature of the (downscaled) image buffers.
+  // Short-circuits before any worker work for repeated analysis of the same photos
+  // (very common when re-opening batch review/correction for the same rows).
   const runOCRFromOrientations = async (
     orientations: Array<{ angle: number; rects: any[]; buffer: ArrayBuffer; sourceImage?: number }>
   ): Promise<ParsedFields> => {
@@ -99,6 +151,15 @@ export function useLabelAnalysisWorkers(onLog?: (msg: string) => void) {
       .filter(o => o.rects && o.rects.length > 0)
       .map(o => ({ rotation: o.angle, buffer: o.buffer, rects: o.rects, sourceImage: o.sourceImage }));
     if (items.length === 0) return {};
+
+    // Item 4 cache check (cheap key, no image data stored in cache)
+    const cacheKey = makeOcrCacheKey(items);
+    const cached = getCached(cacheKey);
+    if (cached) {
+      addLog('OCR result cache hit - skipping workers and parse');
+      return cached;
+    }
+
     addLog(`runOpenCVOnBlob: sending rects from ${new Set(items.map(it => it.sourceImage)).size} photo(s) to OCR worker`);
     const ocrResults = await runOCROnRects(items);
     (ocrResults || []).forEach((r: any, i: number) => {
@@ -108,7 +169,11 @@ export function useLabelAnalysisWorkers(onLog?: (msg: string) => void) {
       addLog(`OCR ${photoLabel}${label}: rect=${JSON.stringify(r.rect)} rotation=${r.rotation} confidence=${r.confidence ?? 'n/a'} text="${snippet}"`);
     });
     const parsed = parseFromRects(ocrResults || []);
-    return parsed || {};
+    const result = parsed || {};
+
+    // Item 4: store result (small strings/objects only)
+    setCached(cacheKey, result);
+    return result;
   };
 
   return {

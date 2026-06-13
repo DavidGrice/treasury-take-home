@@ -177,6 +177,13 @@ self.onmessage = async (e) => {
       let src = cv.matFromImageData(imgData);
       let gray = new cv.Mat();
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+      // CLAHE disabled for performance (was contributing to freezes).
+      // Re-enable if contrast on real labels is poor.
+      // const clahe = cv.createCLAHE(2.0, new cv.Size(8, 8));
+      // clahe.apply(gray, gray);
+      // clahe.delete();
+
       const downscaleMs = Math.round(performance.now() - tDownscaleStart);
 
       // many phone photos of labels are tilted a few degrees, not just
@@ -262,6 +269,15 @@ self.onmessage = async (e) => {
           || (rect.x + rect.width) >= (width - margin)
           || (rect.y + rect.height) >= (height - margin);
         if (touchesBorder) { cnt.delete(); continue; }
+
+        // Reject elongated bright regions (thin horizontal/vertical white lines common in
+        // label design software, clean screenshots, or graphic elements). These are not
+        // real specular "flash" highlights on a physical can photo.
+        const w = rect.width;
+        const h = rect.height;
+        const aspect = Math.max(w, h) / Math.min(w, h);
+        if (aspect > 4.0) { cnt.delete(); continue; }
+
         const perimeter = cv.arcLength(cnt, true);
         const circularity = perimeter > 0 ? (4 * Math.PI * area) / (perimeter * perimeter) : 0;
         if (circularity > bestCircularity) {
@@ -278,6 +294,12 @@ self.onmessage = async (e) => {
       cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
       const thresh = new cv.Mat();
       cv.adaptiveThreshold(blurred, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+
+      // Dilate to connect broken or fragmented text characters (common on labels with graphics, shadows, or low contrast).
+      // This helps contours capture fuller words/lines instead of splitting into tiny rects.
+      const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+      cv.dilate(thresh, thresh, kernel, new cv.Point(-1, -1), 1);
+      kernel.delete();
       const contours = new cv.MatVector();
       const hierarchy = new cv.Mat();
       // RETR_LIST (not RETR_EXTERNAL) so text blocks sitting inside the can's
@@ -292,8 +314,8 @@ self.onmessage = async (e) => {
         const rectArea = rect.width * rect.height;
         // small noise contours from label texture/grain bloat the OCR rect
         // count and contribute mostly garbage text, so require a minimum
-        // area relative to the (downscaled) image size
-        if (rectArea < imgArea * 0.0008) { cnt.delete(); continue; }
+        // area relative to the (downscaled) image size. Raised slightly for perf.
+        if (rectArea < imgArea * 0.0015) { cnt.delete(); continue; }
         // a bounding box covering most of the image is usually the can/label
         // outline (or a large background region), not a focused block of
         // text - OCRing it is both slow and produces mostly noise. But on
@@ -303,8 +325,8 @@ self.onmessage = async (e) => {
         // high fill ratio (contour area / bounding-rect area), while a
         // sprawling outline/background contour is sparse (low fill ratio).
         const fill = rectArea > 0 ? area / rectArea : 0;
-        if (rectArea > imgArea * 0.25 && fill < 0.15) { cnt.delete(); continue; }
-        if (rectArea > imgArea * 0.6) { cnt.delete(); continue; }
+        if (rectArea > imgArea * 0.2 && fill < 0.2) { cnt.delete(); continue; }
+        if (rectArea > imgArea * 0.5) { cnt.delete(); continue; }
         rects.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height, area });
         cnt.delete();
       }
@@ -331,8 +353,12 @@ self.onmessage = async (e) => {
       // each rect now costs at most ~10s of OCR time (MAX_DIM clamp in
       // ocr-worker.js), and rects are split across a 2-worker OCR pool, so we
       // can afford to look at more candidate regions
-      const MAX_RECTS = 12;
-      const topRects = dedupedRects.slice(0, MAX_RECTS);
+      const MAX_RECTS = 8;  // lowered from 12 to reduce OCR load and freeze risk (12 rects + 2 wholes was taking 14s+)
+      let topRects = dedupedRects.slice(0, MAX_RECTS);
+
+      // Multi-scale secondary pass completely disabled for now (was a major source of CPU load
+      // and contributed to freezes even with low thresholds).
+
       const detectMs = Math.round(performance.now() - tDetectStart);
 
       src.delete(); gray.delete();
@@ -343,7 +369,7 @@ self.onmessage = async (e) => {
       self.postMessage({
         type: 'log',
         reqId,
-        text: `opencv-worker: downscale ${downscaleMs}ms, deskew ${deskewMs}ms (${deskewApplied ? `applied, ${skewAngle.toFixed(2)}deg` : 'not applied'}), crop ${cropMs}ms (${cropApplied ? `applied, now ${width}x${height}` : 'not applied'}), detection ${detectMs}ms, ${rects.length} rects found, ${dedupedRects.length} after dedup (${topRects.length} kept)`,
+        text: `opencv-worker: downscale ${downscaleMs}ms, deskew ${deskewMs}ms (${deskewApplied ? `applied, ${skewAngle.toFixed(2)}deg` : 'not applied'}), crop ${cropMs}ms (${cropApplied ? `applied, now ${width}x${height}` : 'not applied'}), detection ${detectMs}ms, blurVariance=${blurVariance.toFixed(0)}, ${rects.length} rects found, ${dedupedRects.length} after dedup (${topRects.length} kept)`,
       });
 
       self.postMessage({
