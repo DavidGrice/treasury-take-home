@@ -27,6 +27,9 @@ export type ParsedFields = {
     whole?: boolean;
     sourceImage?: number;
   }>;
+  // Wine-specific extras (populated when detectable; matching still works via raw + fuzzy even if not extracted here)
+  appellationOfOrigin?: string;
+  sulfiteDeclaration?: string;
 };
 
 export type FieldMatches = Record<string, boolean | 'no-input'>;
@@ -339,7 +342,7 @@ function looseWordRescue(inVal: string, useRaw: string, log?: (msg: string) => v
   // Accept if we matched the majority of the input words (very common for
   // fragmented or partially-misread labels). For single-word inputs this is
   // essentially "the word or a close variant appears".
-  const threshold = Math.max(1, Math.ceil(inWords.length * 0.6));
+  const threshold = Math.max(1, Math.ceil(inWords.length * 0.5)); // lowered from 0.6 for better recall on noisy wine labels / small photos
   if (matched >= threshold) {
     log?.(`Field match (general OCR fragment rescue): ${key || 'field'}="${inVal}" (${matched}/${inWords.length} words matched fuzzily)`);
     return true;
@@ -669,8 +672,9 @@ export const parseFromRects = (
 
   // producer: find the line with the brewed/bottled keyword, then pull in
   // the following lines (name + address) until a stop marker is hit
+  // Extended for wine (winery, cellars, vintners, produced/bottled variants) and general cases.
   let producer = '';
-  const prodKeyword = /(?:brewed and bottled by|brewed and bottled|bottled by|brewed by|brewing co\.?|brewery|brewer)/i;
+  const prodKeyword = /(?:brewed and bottled by|brewed and bottled|bottled by|brewed by|brewing co\.?|brewery|brewer|winery|cellars?|vintners?|produced and bottled|produced by|estate bottled|bottled for)/i;
   const prodStop = /drink responsibly|government\s*warning|surgeon general/i;
   const prodIdx = lines.findIndex(l => prodKeyword.test(l));
   const prodLineIndices = new Set<number>();
@@ -694,6 +698,25 @@ export const parseFromRects = (
     if (usMarkers.test(effectiveJoined)) country = 'USA';
   }
 
+  // appellation of origin (wine-specific, e.g. "American", "Napa Valley", "Sonoma County", AVA names)
+  // Helps with the "appellationOfOrigin" and "percentageForeignWine" checklist items for Wine type.
+  let appellationOfOrigin = '';
+  const appMatch = effectiveJoined.match(/\b(American|California|Napa|Sonoma|Oregon|Washington|AVA|Appellation)\b[^.]{0,30}?(\bValley\b|\bCounty\b|\bRegion\b|Wine)?/i) ||
+                     effectiveJoined.match(/(?:appellation|origin|from|of)\s+([A-Za-z][A-Za-z\s'-]{2,25})/i);
+  if (appMatch) {
+    appellationOfOrigin = (appMatch[1] || appMatch[0]).replace(/[^\w\s'-]/g, '').trim();
+  }
+  // Also scan high-conf words for common geographic terms
+  if (!appellationOfOrigin && highConfWordText) {
+    const geo = highConfWordText.match(/\b(American|Napa|Sonoma|California|Oregon|Washington)\b/i);
+    if (geo) appellationOfOrigin = geo[0];
+  }
+
+  // sulfite declaration (wine-specific "Contains Sulfites" or "No Sulfites Added")
+  let sulfiteDeclaration = '';
+  const sulfMatch = effectiveJoined.match(/contains\s*sulfites?|no\s*sulfites?\s*added|contains\s*sulfite|sulfite\s*declaration/i);
+  if (sulfMatch) sulfiteDeclaration = sulfMatch[0].replace(/\s+/g, ' ').trim();
+
   // brand: prefer first non-warning short line that isn't producer/alcohol/net/legal boilerplate
   // Item 2: we still use position order, but we now also consider that high-quality
   // (whole + high-conf) rects are more trustworthy for the "first good name" decision.
@@ -702,7 +725,7 @@ export const parseFromRects = (
   // Item 6: also try extracting brand from high-conf individual words (often cleaner
   // for proper names that get split across rects or have noise).
   let brand = '';
-  const brandSkip = /government warning|surgeon general|drink responsibly|contains less than|%|ml|pint|bottled by|brewed by|brewery|brew|under|section|taxable|federal|internal revenue|\btax\b|\bco\.?$|alc.*hol|volume|malt beverage/i;
+  const brandSkip = /government warning|surgeon general|drink responsibly|contains less than|%|ml|pint|bottled by|brewed by|brewery|brew|cellars?|vintners?|under|section|taxable|federal|internal revenue|\btax\b|\bco\.?$|alc.*hol|volume|malt beverage/i;
   for (let i = 0; i < nonWarningLines.length; i++) {
     if (prodLineIndices.has(i)) continue;
     const l = nonWarningLines[i];
@@ -736,6 +759,20 @@ export const parseFromRects = (
     if (prodNameLine.length > 2) brand = prodNameLine;
   }
   if (!brand && nonWarningLines[0]) brand = nonWarningLines[0].replace(/[^A-Za-z0-9 &\-\.]/g, '').trim();
+
+  // Boost for wine labels: if no brand yet and we have a large rect (full label from our OpenCV injection),
+  // use its text (or high quality version) if it looks like a winery/brand name. This helps when contours
+  // miss the top brand area but the full/upper rect OCR captured it.
+  if (!brand) {
+    const largeRectResults = usable.filter(r => (r.rect?.width || 0) * (r.rect?.height || 0) > 50000 && r.text && r.text.trim().length > 5);
+    for (const r of largeRectResults) {
+      const cleaned = r.text.replace(/[^A-Za-z0-9 &\-\.]/g, '').trim();
+      if (cleaned.length > 3 && cleaned.length < 50 && !brandSkip.test(cleaned) && /[A-Za-z]{3,}/.test(cleaned)) {
+        brand = cleaned;
+        break;
+      }
+    }
+  }
 
   // if we didn't create a formatted warning but 'government' and 'warning' are present anywhere, set canonical warning
   // Uses the same fuzzy variants as the dedicated warningRescue.
@@ -792,6 +829,8 @@ export const parseFromRects = (
     confidence,
     highQualityRaw: highQualityJoined || undefined,
     spans: spans.length > 0 ? spans : undefined,
+    appellationOfOrigin: appellationOfOrigin || undefined,
+    sulfiteDeclaration: sulfiteDeclaration || undefined,
   };
 };
 

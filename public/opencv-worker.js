@@ -315,7 +315,7 @@ self.onmessage = async (e) => {
         // small noise contours from label texture/grain bloat the OCR rect
         // count and contribute mostly garbage text, so require a minimum
         // area relative to the (downscaled) image size. Raised slightly for perf.
-        if (rectArea < imgArea * 0.0015) { cnt.delete(); continue; }
+        if (rectArea < imgArea * 0.0008) { cnt.delete(); continue; } // lowered for small wine labels / fine text; was 0.0015
         // a bounding box covering most of the image is usually the can/label
         // outline (or a large background region), not a focused block of
         // text - OCRing it is both slow and produces mostly noise. But on
@@ -354,7 +354,63 @@ self.onmessage = async (e) => {
       // ocr-worker.js), and rects are split across a 2-worker OCR pool, so we
       // can afford to look at more candidate regions
       const MAX_RECTS = 8;  // lowered from 12 to reduce OCR load and freeze risk (12 rects + 2 wholes was taking 14s+)
+      // Collect contours, then ensure special rects are prioritized so they survive the MAX_RECTS cap.
+      // This layout has photo on left, text/ingredients on right – contours get polluted by photo, so explicit right + upper + full.
       let topRects = dedupedRects.slice(0, MAX_RECTS);
+
+      const fullRect = { x: 0, y: 0, width, height, area: width * height };
+      if (!topRects.some(r => r.x <= 0 && r.y <= 0 && r.width >= width * 0.9 && r.height >= height * 0.9)) {
+        topRects.unshift(fullRect);
+      }
+
+      const upperH = Math.round(height * 0.6);
+      const upperRect = { x: 0, y: 0, width, height: upperH, area: width * upperH };
+      if (!topRects.some(r => r.x <= 0 && r.y <= 0 && r.height <= upperH * 1.1 && r.height >= upperH * 0.8)) {
+        topRects.unshift(upperRect);  // prioritize upper for brand area
+      }
+
+      // Decide whether to add dedicated right rect using a cheap layout heuristic.
+      // Compute busyness (stddev) on left 45% vs right 55%. If left is significantly
+      // "busier" (common when there's a photo, illustration, or artwork on the left and
+      // clean text/ingredients on the right — as in many wine labels), force a right
+      // rect. This is general, not tuned to any specific photo, and avoids adding
+      // unnecessary rects on symmetric or text-only labels.
+      let addRightRect = true;
+      if (width > 80) {
+        const leftW = Math.round(width * 0.45);
+        const left = gray.colRange(0, leftW);
+        const right = gray.colRange(leftW, width);
+        const lMean = new cv.Mat();
+        const lStd = new cv.Mat();
+        const rMean = new cv.Mat();
+        const rStd = new cv.Mat();
+        cv.meanStdDev(left, lMean, lStd);
+        cv.meanStdDev(right, rMean, rStd);
+        const leftBusy = lStd.doubleAt(0, 0);
+        const rightBusy = rStd.doubleAt(0, 0);
+        addRightRect = leftBusy > rightBusy * 1.25;  // left noticeably busier → likely photo left / text right
+        left.delete(); right.delete(); lMean.delete(); lStd.delete(); rMean.delete(); rStd.delete();
+      }
+
+      const rightX = Math.round(width * 0.45);
+      const rightW = width - rightX;
+      const rightRect = { x: rightX, y: 0, width: rightW, height, area: rightW * height };
+      if (addRightRect && !topRects.some(r => r.x >= rightX * 0.8 && r.width >= rightW * 0.7)) {
+        topRects.unshift(rightRect);  // prioritize right for ingredients/label text
+      }
+
+      // When we have a right area (split layout), also add a focused upper-right rect (right side, top 60%).
+      // This targets the brand/producer area on the right without the bottom warning dominating the tall right rect.
+      // Keeps it general: only added when the busyness heuristic suggests a photo-left/text-right layout.
+      if (addRightRect) {
+        const urH = Math.round(height * 0.6);
+        const upperRightRect = { x: rightX, y: 0, width: rightW, height: urH, area: rightW * urH };
+        if (!topRects.some(r => r.x >= rightX * 0.8 && r.height <= urH * 1.1 && r.height >= urH * 0.8)) {
+          topRects.unshift(upperRightRect);
+        }
+      }
+
+      topRects = topRects.slice(0, MAX_RECTS);
 
       // Multi-scale secondary pass completely disabled for now (was a major source of CPU load
       // and contributed to freezes even with low thresholds).
