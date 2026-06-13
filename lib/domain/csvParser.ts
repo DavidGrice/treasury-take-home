@@ -1,4 +1,5 @@
 import { TYPE_DESIGNATIONS, ALCOHOL_UNITS, NET_CONTENTS_UNITS } from "@/lib/constants/units";
+import { MAX_IMAGES_PER_ROW } from "@/lib/domain/bulkUploadFormatSpec";
 
 // hand-rolled RFC4180-subset CSV parser (no npm dependency): comma-separated,
 // double-quote wrapped fields supporting embedded commas/newlines/escaped
@@ -68,18 +69,20 @@ const PASSTHROUGH_COLUMNS = [
   "percentage_foreign_wine",
 ];
 
-// validates a single CSV row (mapped 1:1 to a submission + image) and maps it
-// to `submissions` column values. Returns per-row errors instead of throwing
-// so the caller can report partial-batch validation results.
-export function mapCsvRowToSubmissionFields(row: Record<string, string>): { values: Record<string, string>; errors: string[] } {
+// validates a single CSV row (mapped 1:1 to a submission + up to
+// MAX_IMAGES_PER_ROW images) and maps it to `submissions` column values.
+// Returns per-row errors instead of throwing so the caller can report
+// partial-batch validation results.
+export function mapCsvRowToSubmissionFields(row: Record<string, string>): { values: Record<string, string>; images: string[]; errors: string[] } {
   const errors: string[] = [];
   const values: Record<string, string> = {};
 
   for (const col of PASSTHROUGH_COLUMNS) values[col] = (row[col] || "").trim();
 
-  const image = (row.image || "").trim();
-  if (!image) errors.push("Missing required field: image");
-  values.image = image;
+  const images = (row.image || "").split(";").map((s) => s.trim()).filter(Boolean);
+  if (images.length === 0) errors.push("Missing required field: image");
+  else if (images.length > MAX_IMAGES_PER_ROW) errors.push(`Too many images (${images.length}) - a maximum of ${MAX_IMAGES_PER_ROW} images per row is allowed`);
+  values.image = images.join(";");
 
   if (!values.brand) errors.push("Missing required field: brand");
   if (!values.producer) errors.push("Missing required field: producer");
@@ -116,5 +119,5 @@ export function mapCsvRowToSubmissionFields(row: Record<string, string>): { valu
     errors.push("Missing required field: age_statement (required for Distilled Spirits)");
   }
 
-  return { values, errors };
+  return { values, images, errors };
 }

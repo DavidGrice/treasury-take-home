@@ -12,12 +12,14 @@ export type FormatColumn = {
   description?: string;
 };
 
+export const MAX_IMAGES_PER_ROW = 10;
+
 export const BULK_UPLOAD_FORMAT_SPEC: { csvColumns: FormatColumn[]; photos: { accepted: string; matching: string } } = {
   csvColumns: [
     {
       name: "image",
       required: true,
-      description: "Filename of this row's label photo. Must exactly match (case-sensitive) the filename of one of the uploaded photos.",
+      description: `Filename(s) of this row's label photo(s), separated by semicolons (;) if more than one (e.g. "front.jpg;back.jpg"). Each filename must exactly match (case-sensitive) the filename of one of the uploaded photos. Up to ${MAX_IMAGES_PER_ROW} images per row.`,
     },
     {
       name: "brand",
@@ -117,15 +119,15 @@ export const BULK_UPLOAD_FORMAT_SPEC: { csvColumns: FormatColumn[]; photos: { ac
     },
   ],
   photos: {
-    accepted: "Any common image file type (JPEG, PNG, WEBP, etc.)",
-    matching: "Each photo's filename must exactly match (case-sensitive) the \"image\" value of one CSV row. Unmatched rows or photos are reported and skipped.",
+    accepted: "Any common image file type (JPEG, PNG, WEBP, etc.) or PDF (first page only).",
+    matching: `Each photo's filename must exactly match (case-sensitive) one of the filenames listed in the "image" column of a CSV row. A row may list up to ${MAX_IMAGES_PER_ROW} filenames (separated by semicolons). Unmatched rows or photos are reported and skipped.`,
   },
 };
 
 // sample values for the downloadable CSV template's one example row -
 // illustrates the expected format without users needing to guess
 export const EXAMPLE_ROW: Record<string, string> = {
-  image: "example-label.jpg",
+  image: "example-label-front.jpg;example-label-back.jpg",
   brand: "Example Brand",
   type_designation: "Malt Beverage",
   alcohol_content: "5.0",

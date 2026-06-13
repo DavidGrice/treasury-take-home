@@ -141,15 +141,31 @@ self.onmessage = async (e) => {
       // contour) being upscaled into a multi-thousand-pixel image - that can
       // take Tesseract a minute or more per crop
       const MAX_DIM = 1200;
+      // overall time budget for this worker call - busy/noisy crops can make
+      // individual Tesseract.recognize() calls much slower than the median,
+      // and a handful of slow rects can add up past the host's 270s timeout.
+      // once the budget is exhausted, stop starting new recognize() calls and
+      // return whatever results have been collected so far rather than
+      // letting the host time out and discard everything for this image.
+      const TIME_BUDGET_MS = 230000;
 
       const results = [];
       const tOcrStart = performance.now();
+      let budgetExceeded = false;
       for (const item of items) {
         const { rotation, buffer, rects, sourceImage } = item;
         const blob = new Blob([buffer], { type: 'image/png' });
         const bmp = await createImageBitmap(blob);
 
         for (let i = 0; i < rects.length; i++) {
+          if (performance.now() - tOcrStart > TIME_BUDGET_MS) {
+            budgetExceeded = true;
+            self.postMessage({ type: 'log', reqId, text: `OCR worker: time budget exceeded, skipping remaining ${rects.length - i} rect(s)` });
+            for (let j = i; j < rects.length; j++) {
+              results.push({ rect: rects[j], text: '', confidence: null, rotation, sourceImage });
+            }
+            break;
+          }
           const r = rects[i];
           const x = Math.max(0, r.x - PAD);
           const y = Math.max(0, r.y - PAD);
@@ -234,28 +250,38 @@ self.onmessage = async (e) => {
         // text in several disconnected blocks) and AUTO (full page
         // segmentation - better when the busy background/graphics confuse
         // sparse-text mode) and keep whichever scores higher.
-        const wholeCanvas = new OffscreenCanvas(bmp.width, bmp.height);
-        wholeCanvas.getContext('2d').drawImage(bmp, 0, 0);
-        binarizeCanvas(wholeCanvas);
-        const allWholePasses = [
-          { name: 'sparse', psm: Tesseract.PSM ? Tesseract.PSM.SPARSE_TEXT : '11' },
-          { name: 'auto', psm: Tesseract.PSM ? Tesseract.PSM.AUTO : '3' },
-        ];
-        // allow the caller to assign only a subset of whole-image passes to
-        // this worker (e.g. when splitting work across a pool of workers);
-        // default to running all passes if no filter was provided
-        const wholePasses = Array.isArray(wholePassNames)
-          ? allWholePasses.filter((p) => wholePassNames.includes(p.name))
-          : allWholePasses;
-        for (const pass of wholePasses) {
-          const tWholeStart = performance.now();
-          try {
-            const { text, confidence } = await recognizeCanvas(wholeCanvas, pass.psm);
-            const wholeMs = Math.round(performance.now() - tWholeStart);
-            self.postMessage({ type: 'log', reqId, text: `OCR worker: whole-image ${pass.name} pass (${bmp.width}x${bmp.height}) took ${wholeMs}ms, confidence ${confidence ?? 'n/a'}, ${text.length} chars` });
-            results.push({ rect: { x: 0, y: 0, width: bmp.width, height: bmp.height }, text, confidence, rotation, whole: true, wholePass: pass.name, sourceImage });
-          } catch (err) {
-            self.postMessage({ type: 'log', reqId, text: `OCR worker: whole-image ${pass.name} pass failed ${String(err)}` });
+        if (budgetExceeded || performance.now() - tOcrStart > TIME_BUDGET_MS) {
+          budgetExceeded = true;
+          self.postMessage({ type: 'log', reqId, text: 'OCR worker: time budget exceeded, skipping whole-image passes' });
+        } else {
+          const wholeCanvas = new OffscreenCanvas(bmp.width, bmp.height);
+          wholeCanvas.getContext('2d').drawImage(bmp, 0, 0);
+          binarizeCanvas(wholeCanvas);
+          const allWholePasses = [
+            { name: 'sparse', psm: Tesseract.PSM ? Tesseract.PSM.SPARSE_TEXT : '11' },
+            { name: 'auto', psm: Tesseract.PSM ? Tesseract.PSM.AUTO : '3' },
+          ];
+          // allow the caller to assign only a subset of whole-image passes to
+          // this worker (e.g. when splitting work across a pool of workers);
+          // default to running all passes if no filter was provided
+          const wholePasses = Array.isArray(wholePassNames)
+            ? allWholePasses.filter((p) => wholePassNames.includes(p.name))
+            : allWholePasses;
+          for (const pass of wholePasses) {
+            if (performance.now() - tOcrStart > TIME_BUDGET_MS) {
+              budgetExceeded = true;
+              self.postMessage({ type: 'log', reqId, text: `OCR worker: time budget exceeded, skipping remaining whole-image pass(es)` });
+              break;
+            }
+            const tWholeStart = performance.now();
+            try {
+              const { text, confidence } = await recognizeCanvas(wholeCanvas, pass.psm);
+              const wholeMs = Math.round(performance.now() - tWholeStart);
+              self.postMessage({ type: 'log', reqId, text: `OCR worker: whole-image ${pass.name} pass (${bmp.width}x${bmp.height}) took ${wholeMs}ms, confidence ${confidence ?? 'n/a'}, ${text.length} chars` });
+              results.push({ rect: { x: 0, y: 0, width: bmp.width, height: bmp.height }, text, confidence, rotation, whole: true, wholePass: pass.name, sourceImage });
+            } catch (err) {
+              self.postMessage({ type: 'log', reqId, text: `OCR worker: whole-image ${pass.name} pass failed ${String(err)}` });
+            }
           }
         }
 

@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing 'rows' field" }, { status: 400 });
   }
 
-  let rows: Array<{ filename: string; fields: Record<string, string> }>;
+  let rows: Array<{ filenames: string[]; fields: Record<string, string> }>;
   try {
     rows = JSON.parse(rowsRaw);
   } catch {
@@ -39,8 +39,10 @@ export async function POST(request: NextRequest) {
   const filesByName = new Map(files.map((f) => [f.name, f]));
 
   for (const row of rows) {
-    if (!filesByName.has(row.filename)) {
-      return NextResponse.json({ error: `No uploaded file matches filename "${row.filename}"` }, { status: 400 });
+    for (const filename of row.filenames) {
+      if (!filesByName.has(filename)) {
+        return NextResponse.json({ error: `No uploaded file matches filename "${filename}"` }, { status: 400 });
+      }
     }
   }
 
@@ -54,11 +56,11 @@ export async function POST(request: NextRequest) {
       try {
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
-          const file = filesByName.get(row.filename)!;
 
           const id = generateSubmissionId();
           const assignedTo = assignReviewer();
-          const imageUrls = await uploadImages(id, [file]);
+          const rowFiles = row.filenames.map((name) => filesByName.get(name)!);
+          const imageUrls = await uploadImages(id, rowFiles);
           const imageUrl = imageUrls[0] ?? null;
 
           const values: Record<string, string> = {};

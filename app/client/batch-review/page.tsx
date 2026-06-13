@@ -7,7 +7,7 @@ import SectionTitle from "../../../components/ui/SectionTitle";
 import Button from "../../../components/ui/Button";
 import Spinner from "../../../components/ui/Spinner";
 import Modal from "../../../components/ui/Modal";
-import BatchCorrectionForm from "../../../components/ui/BatchCorrectionForm";
+import BatchReviewQueue from "@/components/clientStack/upload/BatchReviewQueue";
 import MessageBox from "../../../components/ui/MessageBox";
 import { useLabelAnalysisWorkers } from "@/lib/domain/useLabelAnalysisWorkers";
 import {
@@ -35,7 +35,7 @@ function BatchReviewContent() {
   const [processStats, setProcessStats] = useState<{ submitted: number; needsReview: number; failed: number } | null>(null);
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reviewing, setReviewing] = useState<any | null>(null);
+  const [reviewQueue, setReviewQueue] = useState<{ rows: any[]; startIndex: number } | null>(null);
 
   const { runImageAnalysis, runOCRFromOrientations } = useLabelAnalysisWorkers();
 
@@ -98,19 +98,27 @@ function BatchReviewContent() {
     });
     if (claimRes.status === 409) return null; // claimed by another tab
 
-    const imageUrl = row.image_url;
-    const blob = await fetch(imageUrl).then((r) => r.blob());
+    const imageUrls: string[] = Array.isArray(row.image_urls) && row.image_urls.length > 0
+      ? row.image_urls
+      : (row.image_url ? [row.image_url] : []);
+    const blobs = await Promise.all(imageUrls.map((url) => fetch(url).then((r) => r.blob())));
 
-    const analysis = await runImageAnalysis(blob);
-    const parsed = await runOCRFromOrientations(analysis.orientations);
+    // run the image-analysis pass for every photo, then combine all of their
+    // candidate text regions into a single OCR pass (mirrors runAllChecks in
+    // useLabelAssessment for the single-form upload flow)
+    const analyses = await Promise.all(blobs.map((blob) => runImageAnalysis(blob)));
+    const combinedOrientations = analyses.flatMap((a, i) =>
+      (a.orientations || []).map((o) => ({ ...o, sourceImage: i }))
+    );
+    const parsed = await runOCRFromOrientations(combinedOrientations);
     const rawText = parsed.raw || "";
 
     const inputs = buildFieldMatchInputs(row);
     const { fm, matches, total } = computeFieldMatches(rawText, inputs);
     const score = computeAssessmentScore(matches, total);
 
-    const blurry = analysis.blurVariance < BLUR_VARIANCE_THRESHOLD;
-    const flash = analysis.flash.flashDetected;
+    const blurry = analyses.some((a) => a.blurVariance < BLUR_VARIANCE_THRESHOLD);
+    const flash = analyses.some((a) => a.flash.flashDetected);
     const warningPresent = GOVERNMENT_WARNING_RE.test(rawText);
     const surgeonGeneral = SURGEON_GENERAL_RE.test(rawText);
     const ocrConfidence = typeof parsed.confidence === "number" ? parsed.confidence : null;
@@ -161,10 +169,10 @@ function BatchReviewContent() {
   };
 
   return (
-    <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ width: "100%", maxWidth: 1200, display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <Button variant="secondary" onClick={() => router.push("/client/dashboard")}>
-          ← Back to Dashboard
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div style={{ width: "100%", maxWidth: 1200, display: "flex", justifyContent: "flex-start", marginBottom: 12 }}>
+        <Button variant="secondary" onClick={() => router.push(batchId ? "/client/batch-review" : "/client/dashboard")}>
+          ← Back
         </Button>
       </div>
       <DashboardBox>
@@ -247,7 +255,11 @@ function BatchReviewContent() {
                         <tr
                           key={r.id}
                           style={{ borderBottom: "1px solid #f2f2f2", cursor: needsReview ? "pointer" : "default" }}
-                          onClick={() => needsReview && setReviewing(r)}
+                          onClick={() => {
+                            if (!needsReview) return;
+                            const needsReviewRows = rows.filter((x) => x.status === BATCH_STATUSES.NEEDS_REVIEW);
+                            setReviewQueue({ rows: needsReviewRows, startIndex: needsReviewRows.findIndex((x) => x.id === r.id) });
+                          }}
                         >
                           <td style={{ padding: "8px 6px", fontFamily: "monospace", fontSize: 12 }}>{r.id}</td>
                           <td style={{ padding: "8px 6px" }}>{r.brand || "(no brand)"}</td>
@@ -263,9 +275,15 @@ function BatchReviewContent() {
                 </table>
               </div>
 
-              <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 16 }}>
+              <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
                 <Button onClick={startProcessing} disabled={processing || retryableCount === 0}>
                   {processing ? "Processing..." : `Start Processing (${retryableCount})`}
+                </Button>
+                <Button
+                  onClick={() => setReviewQueue({ rows: rows.filter((x) => x.status === BATCH_STATUSES.NEEDS_REVIEW), startIndex: 0 })}
+                  disabled={counts.needsReview === 0}
+                >
+                  Review All ({counts.needsReview})
                 </Button>
               </div>
             </>
@@ -273,14 +291,21 @@ function BatchReviewContent() {
         </div>
       </DashboardBox>
 
-      {reviewing && (
-        <Modal onClose={() => setReviewing(null)}>
-          <BatchCorrectionForm
-            row={reviewing}
-            onDone={() => {
-              setReviewing(null);
+      {reviewQueue && (
+        <Modal
+          onClose={() => {
+            setReviewQueue(null);
+            loadRows();
+          }}
+        >
+          <BatchReviewQueue
+            rows={reviewQueue.rows}
+            startIndex={reviewQueue.startIndex}
+            onClose={() => {
+              setReviewQueue(null);
               loadRows();
             }}
+            onRowDone={() => loadRows()}
           />
         </Modal>
       )}

@@ -1,21 +1,18 @@
 ﻿"use client";
 import React, { useState, useRef, useEffect } from "react";
-import Button from "./Button";
-import SecondaryButton from "./SecondaryButton";
-import ImageAnnotator from "./ImageAnnotator";
-import Modal from "./Modal";
-import Spinner from "./Spinner";
-import SearchableSelect from "./SearchableSelect";
+import Button from "@/components/ui/Button";
+import SecondaryButton from "@/components/ui/SecondaryButton";
+import ImageAnnotator from "@/components/ui/ImageAnnotator";
+import Modal from "@/components/ui/Modal";
+import Spinner from "@/components/ui/Spinner";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { COUNTRIES } from "@/lib/data/countries";
 import { ChecklistItem, getChecklistItems } from "@/lib/data/checklistData";
-import SectionTitle from "./SectionTitle";
-import { computeFieldMatches, computeAssessmentScore, TYPE_FIELD_CONFIG, EXTRA_FIELD_DB_COLUMNS, UNITS_WITH_FL_OZ_REMAINDER, type ImageAnalysis } from "@/lib/domain/labelAnalysis";
-import { useLabelAnalysisWorkers } from "@/lib/domain/useLabelAnalysisWorkers";
+import SectionTitle from "@/components/ui/SectionTitle";
+import { TYPE_FIELD_CONFIG, EXTRA_FIELD_DB_COLUMNS, UNITS_WITH_FL_OZ_REMAINDER } from "@/lib/domain/labelAnalysis";
+import { useLabelAssessment } from "@/lib/domain/useLabelAssessment";
+import { convertPdfFiles } from "@/lib/domain/pdfToImage";
 import { TYPE_DESIGNATIONS, ALCOHOL_UNITS, NET_CONTENTS_UNITS } from "@/lib/constants/units";
-
-// fallback (main-thread) path only checks a single orientation, so cap its
-// rect count to match the per-orientation cap used by the OpenCV worker
-const MAX_OCR_RECTS = 4;
 
 const FL_OZ_PER_ML = 1 / 29.5735;
 const FL_OZ_PER_UNIT: Record<string, number> = { "Fl. Oz": 1, Pint: 16, Quart: 32, Gallon: 128, mL: FL_OZ_PER_ML, L: FL_OZ_PER_ML * 1000 };
@@ -111,6 +108,8 @@ const EXTRA_FIELD_META: Record<string, { label: string; placeholder?: string }> 
   percentageForeignWine: { label: '% foreign wine', placeholder: 'e.g. Made with 100% Foreign Wine' },
 };
 
+const MAX_IMAGES = 10;
+
 export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubmit?: (data: any) => void; initialData?: any; viewOnly?: boolean }) {
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -128,45 +127,37 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
   const [isImported, setIsImported] = useState(false);
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
   const [extraApplicable, setExtraApplicable] = useState<Record<string, boolean>>({});
-  const [parsedFields, setParsedFields] = useState<any>(null);
-  const [ocrRaw, setOcrRaw] = useState<string>('');
-  const [assessmentScore, setAssessmentScore] = useState<number | null>(null);
-  const [fieldMatches, setFieldMatches] = useState<Record<string, boolean | 'no-input'>>({});
   const [showModal, setShowModal] = useState(false);
   const [modalText, setModalText] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [analysisComplete, setAnalysisComplete] = useState(false);
-  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const annotRef = useRef<any>(null);
-  const addLog = (msg: string) => {
-    console.log(`ChecklistLog: ${msg}`);
-  };
-  const { runImageAnalysis, runOCRFromOrientations: runOCRFromOrientationsBase } = useLabelAnalysisWorkers(addLog);
   const [step, setStep] = useState<number>(0); // 0: text, 1: image, 2: checklist
-
-  // checklist state
-  const [isBlurry, setIsBlurry] = useState<boolean | null>(null);
-  const [hasFlash, setHasFlash] = useState<boolean | null>(null);
 
   // append newly chosen photos to the batch; resets analysis state since the
   // set of images being checked has changed
-  const addFiles = (newFiles: File[]) => {
+  const addFiles = async (newFiles: File[]) => {
     if (newFiles.length === 0) return;
-    const newPreviews = newFiles.map((f) => URL.createObjectURL(f));
+    if (files.length >= MAX_IMAGES) {
+      setModalText(`A maximum of ${MAX_IMAGES} images can be uploaded per application.`);
+      setShowModal(true);
+      return;
+    }
+    const room = MAX_IMAGES - files.length;
+    const toAdd = await convertPdfFiles(newFiles.slice(0, room));
+    if (toAdd.length < newFiles.length) {
+      setModalText(`Only ${room} more image(s) could be added — a maximum of ${MAX_IMAGES} images is allowed per application.`);
+      setShowModal(true);
+    }
+    const newPreviews = toAdd.map((f) => URL.createObjectURL(f));
     setFiles((prev) => {
-      const combined = [...prev, ...newFiles];
-      setActiveImageIndex(combined.length - newFiles.length);
+      const combined = [...prev, ...toAdd];
+      setActiveImageIndex(combined.length - toAdd.length);
       return combined;
     });
     setPreviews((prev) => [...prev, ...newPreviews]);
     // adding/removing photos invalidates any previous analysis results
-    setIsBlurry(null);
-    setHasFlash(null);
-    setCheckStatus({});
-    setAnalysisComplete(false);
-    setOcrConfidence(null);
+    resetAnalysis();
   };
 
   const removeFile = (index: number) => {
@@ -180,11 +171,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       if (index === prev) return 0;
       return prev;
     });
-    setIsBlurry(null);
-    setHasFlash(null);
-    setCheckStatus({});
-    setAnalysisComplete(false);
-    setOcrConfidence(null);
+    resetAnalysis();
   };
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -232,6 +219,57 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     const sec = netContentsSecondary && Number(netContentsSecondary) > 0 ? ` ${netContentsSecondary} Fl. Oz` : '';
     return `${netContents} ${netContentsUnit}${sec}`;
   };
+
+  // the set of extra Class/Type-specific fields currently in play: always-required
+  // ones for this type, plus any "if applicable" ones the user has checked
+  const getActiveExtraInputs = (): Record<string, string> => {
+    const cfg = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
+    const out: Record<string, string> = {};
+    [...cfg.required, ...cfg.applicable.filter((k) => extraApplicable[k])].forEach((k) => {
+      out[k] = extraFields[k] || '';
+    });
+    return out;
+  };
+
+  // country is excluded: it's manually entered and rarely printed on the
+  // label itself, so it's carried over from the form rather than OCR-validated
+  const activeExtraInputs = getActiveExtraInputs();
+  const fieldInputs = {
+    brand, typeDesignation, alcohol: alcoholContent ? `${alcoholContent}%` : '', net: netContentsDisplay(), producer,
+    ...activeExtraInputs,
+  };
+  const fieldKeys = ['brand', 'typeDesignation', 'alcohol', 'net', 'producer', ...Object.keys(activeExtraInputs)];
+
+  const {
+    assessmentScore,
+    setAssessmentScore,
+    fieldMatches,
+    setFieldMatches,
+    ocrConfidence,
+    setOcrConfidence,
+    checkStatus,
+    setCheckStatus,
+    runningChecks,
+    analysisComplete,
+    setAnalysisComplete,
+    assessing,
+    ocrLoading,
+    isBlurry,
+    setIsBlurry,
+    hasFlash,
+    setHasFlash,
+    annotRef,
+    resetAnalysis,
+    runOpenCVOnBlob,
+    runAllChecks,
+  } = useLabelAssessment({
+    viewOnly,
+    files,
+    fieldInputs,
+    fieldKeys,
+    onWarning: (text) => { setModalText(text); setShowModal(true); },
+    onStepChange: setStep,
+  });
 
   // populate the form from a saved submission for read-only viewing
   useEffect(() => {
@@ -353,180 +391,6 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     }
   };
 
-  const [ocrLoading, setOcrLoading] = useState(false);
-  const parseOCRText = (text: string) => {
-    // keep parser in case we add OCR later; for now return empty structured fields
-    return {
-      brand: '',
-      typeDesignation: '',
-      alcoholContent: '',
-      netContents: '',
-      producer: '',
-      country: '',
-      warning: '',
-    };
-  };
-
-  // run OCR on the candidate text regions from runImageAnalysis (or the
-  // main-thread fallback), parse the results, and update form state
-  const runOCRFromOrientations = async (orientations: Array<{ angle: number; rects: any[]; buffer: ArrayBuffer; sourceImage?: number }>) => {
-    const parsed = await runOCRFromOrientationsBase(orientations);
-    setParsedFields(parsed || {});
-    setOcrRaw(parsed?.raw || '');
-    try { if (annotRef.current && typeof annotRef.current.clearBoxes === 'function') annotRef.current.clearBoxes(); } catch (e) {}
-    return parsed || {};
-  };
-
-  const runOpenCVOnBlob = async (blobLike: Blob | null) => {
-    if (!blobLike) return alert('No image selected');
-    setOcrLoading(true);
-    let finalParsed: any = null;
-    addLog('runOpenCVOnBlob: starting OpenCV worker');
-    try {
-      const analysis = await runImageAnalysis(blobLike);
-      if (!analysis.orientations || analysis.orientations.length === 0) throw new Error('No orientations returned from worker');
-      addLog(`OpenCV worker rects: ${JSON.stringify(analysis.orientations.map(o => ({ angle: o.angle, count: o.rects.length })))}`);
-      try {
-        finalParsed = await runOCRFromOrientations(analysis.orientations);
-      } catch (e) { console.warn('OCR on rects failed', e); }
-    } catch (err) {
-      console.warn('Worker processing failed, falling back to main thread', err);
-      // fallback: try main-thread approach but first downscale image to avoid freeze
-      try {
-        const img = await new Promise<HTMLImageElement>((res, rej) => {
-          const i = new Image();
-          i.onload = () => res(i);
-          i.onerror = rej;
-          i.src = URL.createObjectURL(blobLike);
-        });
-        const MAX = 1200;
-        let w = img.naturalWidth;
-        let h = img.naturalHeight;
-        if (Math.max(w, h) > MAX) {
-          const scale = MAX / Math.max(w, h);
-          w = Math.round(w * scale);
-          h = Math.round(h * scale);
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0, w, h);
-        const imgData = ctx.getImageData(0, 0, w, h);
-
-        const { loadOpenCV } = await import('@/lib/domain/opencvLoader');
-        const cv = await loadOpenCV();
-        const src = cv.matFromImageData(imgData);
-        const gray = new cv.Mat();
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        const blur = new cv.Mat();
-        cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
-        const thresh = new cv.Mat();
-        cv.adaptiveThreshold(blur, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
-        const contours = new cv.MatVector();
-        const hierarchy = new cv.Mat();
-        cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-        ctx.strokeStyle = '#0b5fff';
-        ctx.lineWidth = Math.max(2, Math.round(Math.min(w, h) / 300));
-        let found = 0;
-        const rects: any[] = [];
-        for (let i = 0; i < contours.size(); i++) {
-          const cnt = contours.get(i);
-          const area = cv.contourArea(cnt);
-          if (area < w * h * 0.0008) { cnt.delete(); continue; }
-          const rect = cv.boundingRect(cnt);
-          ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-          rects.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height, area });
-          found++;
-          cnt.delete();
-        }
-        src.delete(); gray.delete(); blur.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
-        const canvasBlob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/png'));
-        // do not replace preview with annotated canvas; keep original preview image
-        if (rects && rects.length > 0 && canvasBlob) {
-          try {
-            const rectsToOCR = [...rects].sort((a, b) => (b.area || 0) - (a.area || 0)).slice(0, MAX_OCR_RECTS);
-            const buffer = await canvasBlob.arrayBuffer();
-            finalParsed = await runOCRFromOrientations([{ angle: 0, rects: rectsToOCR, buffer }]);
-          } catch (e) { console.warn('OCR on rects failed', e); }
-        }
-      } catch (err2) {
-        console.error('Fallback main-thread processing failed', err2);
-        alert('Image processing failed. See console for details.');
-      }
-    } finally {
-      setOcrLoading(false);
-    }
-
-    return finalParsed;
-  };
-
-  const runOpenCVOnFile = async () => {
-    if (!files[0]) return alert('Please choose an image first');
-    await runOpenCVOnBlob(files[0]);
-  };
-
-  useEffect(() => {
-    // when all files removed, reset checklist
-    // (skip in viewOnly: on mount `files` is still empty until the saved image
-    // finishes loading async, which would otherwise wipe out the stored
-    // isBlurry/hasFlash results set by the initialData population effect)
-    if (viewOnly) return;
-    if (files.length === 0) {
-      setIsBlurry(null); setHasFlash(null);
-    }
-  }, [files, viewOnly]);
-
-  // don't auto-open modal; modal will be shown after orchestrated checks if needed
-
-  // the set of extra Class/Type-specific fields currently in play: always-required
-  // ones for this type, plus any "if applicable" ones the user has checked
-  const getActiveExtraInputs = (): Record<string, string> => {
-    const cfg = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
-    const out: Record<string, string> = {};
-    [...cfg.required, ...cfg.applicable.filter((k) => extraApplicable[k])].forEach((k) => {
-      out[k] = extraFields[k] || '';
-    });
-    return out;
-  };
-
-  // compute assessment by comparing user inputs (treated as regex) to parsed OCR fields
-  const computeAssessment = () => {
-    const token = ++assessmentTokenRef.current;
-    setAssessing(true);
-    // schedule heavy work off the render path to keep UI responsive
-    setTimeout(() => {
-      if (token !== assessmentTokenRef.current) return; // cancelled
-      const rawText = (parsedFields || {}).raw || '';
-      // country is excluded: it's manually entered and rarely printed on the
-      // label itself, so it's carried over from the form rather than OCR-validated
-      const { fm, matches, total } = computeFieldMatches(rawText, {
-        brand, typeDesignation, alcohol: alcoholContent ? `${alcoholContent}%` : '', net: netContentsDisplay(), producer,
-        ...getActiveExtraInputs(),
-      }, addLog);
-
-      if (token !== assessmentTokenRef.current) return;
-      setAssessmentScore(computeAssessmentScore(matches, total));
-      setFieldMatches(fm);
-      setAssessing(false);
-    }, 0);
-  };
-
-  useEffect(() => {
-    // recompute whenever parsed fields or user inputs change
-    // (skip in viewOnly: results are loaded from the stored assessment, not recomputed)
-    if (viewOnly) return;
-    computeAssessment();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsedFields, brand, typeDesignation, alcoholContent, netContents, netContentsUnit, netContentsSecondary, producer, country, extraFields, extraApplicable]);
-
-  // assessment scheduling state
-  const assessmentTokenRef = React.useRef(0);
-  const [assessing, setAssessing] = useState(false);
-
-  const [checkStatus, setCheckStatus] = useState<Record<string, 'idle' | 'running' | 'ok' | 'fail'>>({});
-  const [runningChecks, setRunningChecks] = useState(false);
-
   const typeConfig = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
 
   const allFieldsFilled = [brand, typeDesignation, alcoholContent, netContents, producer].every(v => (v || '').toString().trim().length > 0)
@@ -534,162 +398,6 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     && (!isImported || country.trim().length > 0)
     && typeConfig.required.every((k) => (extraFields[k] || '').trim().length > 0)
     && typeConfig.applicable.every((k) => !extraApplicable[k] || (extraFields[k] || '').trim().length > 0);
-
-  const runAllChecks = async () => {
-    if (files.length === 0) return alert('Please upload an image first');
-    setRunningChecks(true);
-    setAnalysisComplete(false);
-    // reset statuses
-    const initial: Record<string, any> = { blurry: 'running', flash: 'running', ocr: 'idle', surgeonGeneral: 'idle', warningPresent: 'idle', ocrConfidence: 'idle' };
-    ['brand','typeDesignation','alcohol','net','producer', ...Object.keys(getActiveExtraInputs())].forEach(k => initial[k] = 'idle');
-    setCheckStatus(initial);
-    addLog('runAllChecks: started');
-    // move to checklist view immediately so user sees running spinners
-    setStep(2);
-
-    // 1) run the consolidated image-analysis pass (blur variance, flash
-    // detection, and OCR text regions all from one downscaled copy) for
-    // EVERY photo in the batch, so all of them are checked for quality and
-    // all of their candidate text regions feed into a single combined OCR pass
-    const analyses: Array<ImageAnalysis | null> = [];
-    for (let i = 0; i < files.length; i++) {
-      try {
-        addLog(`runAllChecks: starting image analysis (photo ${i + 1}/${files.length})`);
-        analyses.push(await runImageAnalysis(files[i]));
-      } catch (err) {
-        addLog(`runAllChecks: image analysis failed for photo ${i + 1}: ${String(err)}`);
-        console.warn('Image analysis worker failed', err);
-        analyses.push(null);
-      }
-    }
-
-    try {
-      let blurryDetected: boolean | null = null;
-      let blurryIndex = -1;
-      analyses.forEach((a, i) => {
-        if (a && a.blurVariance < 100 && blurryIndex === -1) { blurryDetected = true; blurryIndex = i; }
-      });
-      if (blurryDetected === null) blurryDetected = analyses.every((a) => a === null) ? null : false;
-      addLog(`runAllChecks: blur check result=${String(blurryDetected)}`);
-      setIsBlurry(blurryDetected);
-      setCheckStatus((s) => ({ ...s, blurry: blurryDetected ? 'fail' : 'ok' }));
-      if (blurryDetected) {
-        setModalText(`Warning: Photo ${blurryIndex + 1} appears blurry. All images must be clear and free of blur.`);
-        setShowModal(true);
-        setRunningChecks(false);
-        setAnalysisComplete(true);
-        return;
-      }
-
-      let flashDetected: boolean | null = null;
-      let flashIndex = -1;
-      analyses.forEach((a, i) => {
-        if (a && a.flash.flashDetected && flashIndex === -1) { flashDetected = true; flashIndex = i; }
-      });
-      if (flashDetected === null) flashDetected = analyses.every((a) => a === null) ? null : false;
-      addLog(`runAllChecks: flash check result=${String(flashDetected)}`);
-      setHasFlash(flashDetected);
-      setCheckStatus((s) => ({ ...s, flash: flashDetected ? 'fail' : 'ok' }));
-      if (flashDetected) {
-        setModalText(`Warning: Flash or extreme highlights detected on photo ${flashIndex + 1}. All images must be free of flash.`);
-        setShowModal(true);
-        setRunningChecks(false);
-        setAnalysisComplete(true);
-        return;
-      }
-    } catch (err) {
-      console.warn('Image quality check failed', err);
-      setCheckStatus((s) => ({ ...s, blurry: 'fail', flash: 'fail' }));
-      setModalText('Image quality analysis failed');
-      setShowModal(true);
-      setRunningChecks(false);
-      setAnalysisComplete(true);
-      return;
-    }
-
-    // 2) run OCR / parsing
-    addLog('runAllChecks: starting OCR');
-    setCheckStatus((s) => {
-      const next: Record<string, any> = { ...s, ocr: 'running' };
-      ['brand','typeDesignation','alcohol','net','producer', ...Object.keys(getActiveExtraInputs())].forEach(k => next[k] = 'running');
-      return next;
-    });
-    try {
-      // combine every photo's candidate text regions into one list so a
-      // single OCR pass (split across the worker pool) checks all photos at
-      // once - this lets a field match text found on ANY of the photos
-      const combinedOrientations = analyses.flatMap((a, i) => {
-        if (!a || !a.orientations) return [];
-        return a.orientations.map((o) => ({ ...o, sourceImage: i }));
-      });
-      // reuse the analysis passes' orientations/rects when available so OCR
-      // doesn't trigger a second OpenCV worker run; otherwise fall back to
-      // runOpenCVOnBlob, which re-runs analysis and has its own main-thread fallback
-      const parsed = combinedOrientations.length > 0
-        ? await runOCRFromOrientations(combinedOrientations)
-        : await runOpenCVOnBlob(files[0]);
-      addLog('runAllChecks: OCR finished');
-      // parsed is set in state by the OCR helpers above
-      setCheckStatus((s) => ({ ...s, ocr: 'ok' }));
-
-      // compute per-field matches directly from the freshly parsed raw OCR text
-      // (country is excluded: it's manually entered and rarely printed on the label)
-      const rawText = (parsed || {}).raw || '';
-      const { fm, matches, total } = computeFieldMatches(rawText, {
-        brand, typeDesignation, alcohol: alcoholContent ? `${alcoholContent}%` : '', net: netContentsDisplay(), producer,
-        ...getActiveExtraInputs(),
-      }, addLog);
-      setFieldMatches(fm);
-      setAssessmentScore(computeAssessmentScore(matches, total));
-
-      const updates: Record<string, any> = {};
-      let anyFail = false;
-      ['brand','typeDesignation','alcohol','net','producer', ...Object.keys(getActiveExtraInputs())].forEach(k => {
-        const v = fm[k];
-        if (v === 'no-input') updates[k] = 'idle';
-        else if (v === true) updates[k] = 'ok';
-        else { updates[k] = 'fail'; anyFail = true; }
-      });
-
-      // "Surgeon General" must appear exactly as written; common OCR misspellings
-      // (e.g. "Surgeon Genreal") indicate the printed text itself is non-compliant
-      const sgExact = /surgeon general/i.test(rawText);
-      if (sgExact) updates.surgeonGeneral = 'ok';
-      else { updates.surgeonGeneral = 'fail'; anyFail = true; }
-
-      // "GOVERNMENT WARNING" must appear exactly as written on the label
-      const gwExact = /government warning/i.test(rawText);
-      if (gwExact) updates.warningPresent = 'ok';
-      else { updates.warningPresent = 'fail'; anyFail = true; }
-
-      // overall OCR confidence: low confidence means the parsed fields above
-      // are less trustworthy and may warrant manual review even if they matched
-      const conf = (parsed || {}).confidence;
-      setOcrConfidence(typeof conf === 'number' ? conf : null);
-      if (typeof conf === 'number') {
-        if (conf >= 70) updates.ocrConfidence = 'ok';
-        else { updates.ocrConfidence = 'fail'; anyFail = true; }
-      } else {
-        updates.ocrConfidence = 'idle';
-      }
-
-      setCheckStatus((s) => ({ ...s, ...updates }));
-
-      if (anyFail) {
-        setModalText('One or more fields did not match the image. Please review the parsed results or edit the inputs.');
-        setShowModal(true);
-      }
-    } catch (err) {
-      console.warn('OCR check failed', err);
-      setCheckStatus((s) => ({ ...s, ocr: 'fail' }));
-      setModalText('Text recognition failed.');
-      setShowModal(true);
-    } finally {
-      setRunningChecks(false);
-      setAnalysisComplete(true);
-      setStep(2);
-    }
-  };
 
   return (
     <form onSubmit={handleSubmit} className="form-split">
@@ -744,15 +452,20 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                     ))}
                   </div>
                 )}
-                  {!viewOnly && (
+                  {!viewOnly && files.length < MAX_IMAGES && (
                     <>
-                      <input ref={inputRef} type="file" accept="image/*" multiple onChange={onFileChange} style={previews.length > 0 ? { display: 'none' } : { marginTop: 8 }} />
+                      <input ref={inputRef} type="file" accept="image/*,application/pdf" multiple onChange={onFileChange} style={previews.length > 0 ? { display: 'none' } : { marginTop: 8 }} />
                       <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
                         <Button type="button" variant="secondary" onClick={() => { if (inputRef.current) inputRef.current.click(); }}>
                           {previews.length > 0 ? 'Add more photos' : 'Upload file(s)'}
                         </Button>
                       </div>
                     </>
+                  )}
+                  {!viewOnly && files.length >= MAX_IMAGES && (
+                    <p className="text-sm" style={{ color: "#555", marginTop: 10 }}>
+                      Maximum of {MAX_IMAGES} images reached.
+                    </p>
                   )}
                 {ocrLoading && (
                   <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', zIndex: 50 }}>

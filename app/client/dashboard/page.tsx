@@ -1,34 +1,45 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import DashboardBox from "../../../components/ui/DashboardBox";
-import UploadForm from "../../../components/ui/UploadForm";
+import UploadForm from "@/components/clientStack/home/UploadForm";
 import Button from "../../../components/ui/Button";
 import Modal from "../../../components/ui/Modal";
 import RejectionReviewModal from "../../../components/ui/RejectionReviewModal";
 import AcceptedReviewModal from "../../../components/ui/AcceptedReviewModal";
+import SubmissionViewQueue from "../../../components/ui/SubmissionViewQueue";
 import FilterStat from "../../../components/ui/FilterStat";
 import Spinner from "../../../components/ui/Spinner";
 import SortableTh from "../../../components/ui/SortableTh";
 import { sortSubmissions, useSortableTable } from "@/lib/domain/sortSubmissions";
 import { deriveFilterOptions, scoreLabel } from "@/lib/domain/submissionFields";
 import { useSubmissions } from "@/lib/hooks/useSubmissions";
-import { SUBMISSION_STATUSES, type SubmissionStatus } from "@/lib/constants/statuses";
+import { SUBMISSION_STATUSES, reviewButtonStyle, type SubmissionStatus } from "@/lib/constants/statuses";
 
 type StatusFilter = "All" | SubmissionStatus;
 
-export default function ClientDashboardPage() {
+function ClientDashboardContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [showUpload, setShowUpload] = useState(false);
   const { forms, setForms, loading } = useSubmissions();
   const [viewing, setViewing] = useState<any | null>(null);
+  const [viewAllQueue, setViewAllQueue] = useState<{ submissions: any[]; startIndex: number } | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("All");
   const [idFilter, setIdFilter] = useState("All");
   const [brandFilter, setBrandFilter] = useState("All");
   const [scoreFilter, setScoreFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("All");
   const { sortKey, sortDir, handleSort } = useSortableTable("submitted_at", "desc");
+
+  // sidebar's "New Form" link opens the upload modal via ?new=1 from any page
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setShowUpload(true);
+      router.replace("/client/dashboard");
+    }
+  }, [searchParams, router]);
 
   const totalCount = forms.length;
   const submittedCount = forms.filter((f) => f.status === SUBMISSION_STATUSES.SUBMITTED).length;
@@ -64,12 +75,7 @@ export default function ClientDashboardPage() {
   };
 
   return (
-    <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ width: "100%", maxWidth: 1200, display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <Button variant="secondary" onClick={() => router.push("/auth")}>
-          ⏻ Logout
-        </Button>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <DashboardBox
         topItems={[
           <FilterStat key="all" label="Total" count={totalCount} active={filter === "All"} onSelect={() => handleStatusFilter("All")} />,
@@ -169,13 +175,7 @@ export default function ClientDashboardPage() {
                       <Button
                         variant="secondary"
                         onClick={() => setViewing(f)}
-                        style={
-                          f.status === SUBMISSION_STATUSES.REJECTED
-                            ? { background: '#ef4444', color: 'white', border: 'none' }
-                            : f.status === SUBMISSION_STATUSES.APPROVED
-                            ? { background: '#16a34a', color: 'white', border: 'none' }
-                            : undefined
-                        }
+                        style={reviewButtonStyle(f.status)}
                       >
                         View
                       </Button>
@@ -189,9 +189,9 @@ export default function ClientDashboardPage() {
           )}
 
           <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center', gap: 12 }}>
-            <Button onClick={() => setShowUpload(true)} disabled={loading}>New Form</Button>
-            <Button variant="secondary" onClick={() => router.push("/client/bulk-upload")} disabled={loading}>Bulk Upload</Button>
-            <Button variant="secondary" onClick={() => router.push("/client/batch-review")} disabled={loading}>Batch Review</Button>
+            <Button variant="secondary" onClick={() => setViewAllQueue({ submissions: sortedForms, startIndex: 0 })} disabled={loading || sortedForms.length === 0}>
+              View All ({sortedForms.length})
+            </Button>
           </div>
 
           {showUpload && (
@@ -211,8 +211,35 @@ export default function ClientDashboardPage() {
               )}
             </Modal>
           )}
+
+          {viewAllQueue && (
+            <Modal className="modal-content--wide" onClose={() => setViewAllQueue(null)}>
+              <SubmissionViewQueue
+                submissions={viewAllQueue.submissions}
+                startIndex={viewAllQueue.startIndex}
+                onClose={() => setViewAllQueue(null)}
+                renderItem={(f) =>
+                  f.status === SUBMISSION_STATUSES.REJECTED ? (
+                    <RejectionReviewModal submission={f} />
+                  ) : f.status === SUBMISSION_STATUSES.APPROVED ? (
+                    <AcceptedReviewModal submission={f} />
+                  ) : (
+                    <UploadForm viewOnly initialData={f} />
+                  )
+                }
+              />
+            </Modal>
+          )}
         </div>
       </DashboardBox>
     </div>
+  );
+}
+
+export default function ClientDashboardPage() {
+  return (
+    <Suspense fallback={<div style={{ display: "flex", justifyContent: "center" }}><Spinner label="Loading..." /></div>}>
+      <ClientDashboardContent />
+    </Suspense>
   );
 }

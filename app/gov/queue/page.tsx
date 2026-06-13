@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { useRouter } from "next/navigation";
 import DashboardBox from "../../../components/ui/DashboardBox";
 import Button from "../../../components/ui/Button";
 import Modal from "../../../components/ui/Modal";
-import GovReviewModal from "../../../components/ui/GovReviewModal";
+import GovReviewQueue from "@/components/govStack/queue/GovReviewQueue";
+import SubmissionViewQueue from "../../../components/ui/SubmissionViewQueue";
 import RejectionReviewModal from "../../../components/ui/RejectionReviewModal";
 import AcceptedReviewModal from "../../../components/ui/AcceptedReviewModal";
 import FilterStat from "../../../components/ui/FilterStat";
@@ -15,14 +15,15 @@ import { sortSubmissions, useSortableTable } from "@/lib/domain/sortSubmissions"
 import { deriveFilterOptions, scoreLabel } from "@/lib/domain/submissionFields";
 import { EMPLOYEES, getEmployeeName } from "@/lib/data/employees";
 import { useSubmissions } from "@/lib/hooks/useSubmissions";
-import { SUBMISSION_STATUSES, type SubmissionStatus } from "@/lib/constants/statuses";
+import { SUBMISSION_STATUSES, reviewButtonStyle, type SubmissionStatus } from "@/lib/constants/statuses";
 
 type StatusFilter = SubmissionStatus;
 
 export default function GovQueuePage() {
-  const router = useRouter();
   const { forms, setForms, loading } = useSubmissions();
   const [viewing, setViewing] = useState<any | null>(null);
+  const [reviewQueue, setReviewQueue] = useState<{ submissions: any[]; startIndex: number } | null>(null);
+  const [viewAllQueue, setViewAllQueue] = useState<{ submissions: any[]; startIndex: number } | null>(null);
   const [filter, setFilter] = useState<StatusFilter>(SUBMISSION_STATUSES.SUBMITTED);
   const [assigneeFilter, setAssigneeFilter] = useState<string>("All");
   const [idFilter, setIdFilter] = useState("All");
@@ -56,6 +57,11 @@ export default function GovQueuePage() {
 
   const sortedForms = sortSubmissions(visibleForms, sortKey, sortDir);
 
+  // the "In Queue" submissions, in the same order as the table - used to
+  // drive the "Continue Queue" review flow regardless of which status tab is
+  // currently selected
+  const queueForms = sortSubmissions(forms.filter((f) => f.status === SUBMISSION_STATUSES.SUBMITTED), sortKey, sortDir);
+
   // switching the status tab can invalidate the currently selected column
   // filters (e.g. an ID that only exists under "Accepted"), so reset them
   const handleStatusFilter = (next: StatusFilter) => {
@@ -68,12 +74,7 @@ export default function GovQueuePage() {
   };
 
   return (
-    <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ width: "100%", maxWidth: 1200, display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <Button variant="secondary" onClick={() => router.push("/auth")}>
-          ⏻ Logout
-        </Button>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <DashboardBox
         topItems={[
           <FilterStat key="queue" label="In Queue" count={queueCount} active={filter === SUBMISSION_STATUSES.SUBMITTED} onSelect={() => handleStatusFilter(SUBMISSION_STATUSES.SUBMITTED)} />,
@@ -184,14 +185,14 @@ export default function GovQueuePage() {
                       <td style={{ padding: '8px 6px' }}>
                         <Button
                           variant="secondary"
-                          onClick={() => setViewing(f)}
-                          style={
-                            f.status === SUBMISSION_STATUSES.REJECTED
-                              ? { background: '#ef4444', color: 'white', border: 'none' }
-                              : f.status === SUBMISSION_STATUSES.APPROVED
-                              ? { background: '#16a34a', color: 'white', border: 'none' }
-                              : undefined
-                          }
+                          onClick={() => {
+                            if (f.status === SUBMISSION_STATUSES.SUBMITTED) {
+                              setReviewQueue({ submissions: queueForms, startIndex: queueForms.findIndex((x) => x.id === f.id) });
+                            } else {
+                              setViewing(f);
+                            }
+                          }}
+                          style={reviewButtonStyle(f.status)}
                         >
                           View
                         </Button>
@@ -204,15 +205,63 @@ export default function GovQueuePage() {
           </div>
           )}
 
+          {!loading && filter === SUBMISSION_STATUSES.SUBMITTED && (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+              <Button onClick={() => setReviewQueue({ submissions: queueForms, startIndex: 0 })} disabled={queueForms.length === 0}>
+                Continue Queue ({queueForms.length})
+              </Button>
+            </div>
+          )}
+
+          {!loading && filter !== SUBMISSION_STATUSES.SUBMITTED && (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+              <Button onClick={() => setViewAllQueue({ submissions: sortedForms, startIndex: 0 })} disabled={sortedForms.length === 0}>
+                View All ({sortedForms.length})
+              </Button>
+            </div>
+          )}
+
           {viewing && (
-            <Modal onClose={() => setViewing(null)} className={viewing.status === SUBMISSION_STATUSES.SUBMITTED ? "modal-content--wide" : undefined}>
-              {viewing.status === SUBMISSION_STATUSES.SUBMITTED ? (
-                <GovReviewModal submission={viewing} onClose={() => setViewing(null)} onUpdated={handleUpdated} />
-              ) : viewing.status === SUBMISSION_STATUSES.REJECTED ? (
+            <Modal onClose={() => setViewing(null)}>
+              {viewing.status === SUBMISSION_STATUSES.REJECTED ? (
                 <RejectionReviewModal submission={viewing} />
               ) : (
                 <AcceptedReviewModal submission={viewing} />
               )}
+            </Modal>
+          )}
+
+          {reviewQueue && (
+            <Modal
+              className="modal-content--wide"
+              onClose={() => setReviewQueue(null)}
+            >
+              <GovReviewQueue
+                submissions={reviewQueue.submissions}
+                startIndex={reviewQueue.startIndex}
+                onClose={() => setReviewQueue(null)}
+                onUpdated={handleUpdated}
+              />
+            </Modal>
+          )}
+
+          {viewAllQueue && (
+            <Modal
+              className="modal-content--wide"
+              onClose={() => setViewAllQueue(null)}
+            >
+              <SubmissionViewQueue
+                submissions={viewAllQueue.submissions}
+                startIndex={viewAllQueue.startIndex}
+                onClose={() => setViewAllQueue(null)}
+                renderItem={(f) =>
+                  f.status === SUBMISSION_STATUSES.REJECTED ? (
+                    <RejectionReviewModal submission={f} />
+                  ) : (
+                    <AcceptedReviewModal submission={f} />
+                  )
+                }
+              />
             </Modal>
           )}
         </div>

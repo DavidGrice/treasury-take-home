@@ -7,9 +7,10 @@ import SectionTitle from "../../../components/ui/SectionTitle";
 import Button from "../../../components/ui/Button";
 import Modal from "../../../components/ui/Modal";
 import MessageBox from "../../../components/ui/MessageBox";
-import { BULK_UPLOAD_FORMAT_SPEC, EXAMPLE_ROW, buildCsvTemplate } from "@/lib/domain/bulkUploadFormatSpec";
+import { BULK_UPLOAD_FORMAT_SPEC, EXAMPLE_ROW, MAX_IMAGES_PER_ROW, buildCsvTemplate } from "@/lib/domain/bulkUploadFormatSpec";
+import { convertPdfFiles } from "@/lib/domain/pdfToImage";
 
-type ValidRow = { filename: string; fields: Record<string, string> };
+type ValidRow = { filenames: string[]; fields: Record<string, string> };
 type InvalidRow = { filename: string; errors: string[] };
 
 type ParseResult = {
@@ -33,6 +34,18 @@ export default function BulkUploadPage() {
 
   const csvInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // warn the user if they try to close/refresh the tab mid-upload - the
+  // streamed batch-creation request would be aborted partway through
+  useEffect(() => {
+    if (!uploading) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [uploading]);
 
   const setCsv = (file: File | null) => {
     setCsvFile(file);
@@ -62,10 +75,11 @@ export default function BulkUploadPage() {
     setCsv(e.target.files?.[0] || null);
   };
 
-  const addPhotos = (files: File[]) => {
+  const addPhotos = async (files: File[]) => {
     if (files.length === 0) return;
+    const converted = await convertPdfFiles(files);
     const existingNames = new Set(photoFiles.map((f) => f.name));
-    const merged = [...photoFiles, ...files.filter((f) => !existingNames.has(f.name))];
+    const merged = [...photoFiles, ...converted.filter((f) => !existingNames.has(f.name))];
     setPhotos(merged);
   };
 
@@ -122,17 +136,19 @@ export default function BulkUploadPage() {
     const invalidRows: InvalidRow[] = [];
 
     rows.forEach((row, i) => {
-      const filename = (row.image || "").trim();
-      const { values, errors } = mapCsvRowToSubmissionFields(row);
+      const { values, images, errors } = mapCsvRowToSubmissionFields(row);
 
-      if (filename && !photoNames.has(filename)) {
-        errors.push(`No uploaded photo matches filename "${filename}"`);
+      for (const filename of images) {
+        if (!photoNames.has(filename)) {
+          errors.push(`No uploaded photo matches filename "${filename}"`);
+        }
       }
 
+      const label = images[0] || `(row ${i + 2})`;
       if (errors.length > 0) {
-        invalidRows.push({ filename: filename || `(row ${i + 2})`, errors });
+        invalidRows.push({ filename: label, errors });
       } else {
-        validRows.push({ filename, fields: values });
+        validRows.push({ filenames: images, fields: values });
       }
     });
 
@@ -149,8 +165,9 @@ export default function BulkUploadPage() {
       const formData = new FormData();
       formData.append("rows", JSON.stringify(result.validRows));
       const photosByName = new Map(photoFiles.map((f) => [f.name, f]));
-      for (const row of result.validRows) {
-        const file = photosByName.get(row.filename);
+      const usedNames = new Set(result.validRows.flatMap((row) => row.filenames));
+      for (const name of usedNames) {
+        const file = photosByName.get(name);
         if (file) formData.append("files", file);
       }
 
@@ -196,7 +213,7 @@ export default function BulkUploadPage() {
   };
 
   return (
-    <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <div style={{ width: "100%", maxWidth: 1200, display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
         <Button variant="secondary" onClick={() => router.push("/client/dashboard")}>
           ← Back to Dashboard
@@ -207,7 +224,8 @@ export default function BulkUploadPage() {
           <SectionTitle>Bulk Upload</SectionTitle>
           <p className="text-sm" style={{ textAlign: "center", color: "#555" }}>
             Upload a CSV of applications (one row per application) along with the label photos.
-            Each row's <code>image</code> column must match a photo's filename exactly (case-sensitive).
+            Each row's <code>image</code> column must match one or more photo filenames exactly (case-sensitive),
+            separated by semicolons — up to {MAX_IMAGES_PER_ROW} images per row.
           </p>
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
             <Button type="button" variant="secondary" onClick={() => setShowGuide(true)} style={{ background: "#fef9c3", border: "1px solid #fde047", color: "#000" }}>
@@ -284,7 +302,7 @@ export default function BulkUploadPage() {
                   </div>
                 </div>
               )}
-              <input ref={photoInputRef} type="file" accept="image/*" multiple onChange={onPhotosChange} style={{ display: "none" }} />
+              <input ref={photoInputRef} type="file" accept="image/*,application/pdf" multiple onChange={onPhotosChange} style={{ display: "none" }} />
             </div>
           </div>
 
@@ -354,6 +372,9 @@ export default function BulkUploadPage() {
                   />
                 </div>
               )}
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#991b1b", textAlign: "center", marginTop: 4 }}>
+                Please do not close this window or browser.
+              </div>
             </div>
           ) : uploadError ? (
             <div style={{ textAlign: "center", padding: "8px 4px" }}>
@@ -398,7 +419,7 @@ export default function BulkUploadPage() {
           </div>
           <div style={{ padding: "12px 4px 24px" }}>
             <p className="text-sm" style={{ color: "#555", marginTop: 0 }}>
-              The first row of the CSV must contain these column names exactly. One row = one application = one label photo.
+              The first row of the CSV must contain these column names exactly. One row = one application, with one or more label photos (up to {MAX_IMAGES_PER_ROW}).
             </p>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -463,8 +484,8 @@ export default function BulkUploadPage() {
             <div style={{ marginTop: 8, padding: 12, background: "#f9fafb", border: "1px solid #eee", borderRadius: 6 }}>
               <strong className="text-sm">Example</strong>
               <p className="text-sm" style={{ color: "#555", marginTop: 4, marginBottom: 0 }}>
-                The example row above has <code>image</code> = <code>{EXAMPLE_ROW.image}</code>, so one of your
-                uploaded photos must be named exactly <code>{EXAMPLE_ROW.image}</code> (matching is case-sensitive).
+                The example row above has <code>image</code> = <code>{EXAMPLE_ROW.image}</code>, so two of your
+                uploaded photos must be named exactly <code>{EXAMPLE_ROW.image.split(";").join("</code> and <code>")}</code> (matching is case-sensitive).
               </p>
             </div>
           </div>

@@ -1,10 +1,12 @@
 "use client";
 import React, { useState } from "react";
-import Button from "./Button";
-import SecondaryButton from "./SecondaryButton";
+import Button from "@/components/ui/Button";
+import SecondaryButton from "@/components/ui/SecondaryButton";
 import { BASE_FIELDS, IMAGE_QUALITY_FIELDS, applicableExtraFields, fieldValue, getImageUrls } from "@/lib/domain/submissionFields";
-import SectionTitle from "./SectionTitle";
-import FieldRow from "./FieldRow";
+import SectionTitle from "@/components/ui/SectionTitle";
+import FieldRow from "@/components/ui/FieldRow";
+import ImageGallery from "@/components/ui/ImageGallery";
+import ChecklistGroup from "@/components/ui/ChecklistGroup";
 import { SUBMISSION_STATUSES } from "@/lib/constants/statuses";
 
 export default function GovReviewModal({
@@ -20,7 +22,6 @@ export default function GovReviewModal({
   const [reasons, setReasons] = useState<Record<string, boolean>>({});
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [expandedSrc, setExpandedSrc] = useState<string | null>(null);
 
   const imageUrls = getImageUrls(submission);
 
@@ -57,32 +58,18 @@ export default function GovReviewModal({
       <div style={{ padding: 8 }}>
         <h3 style={{ marginTop: 0 }}>Reasons for Rejection</h3>
         <p style={{ color: "#666", fontSize: 13 }}>Select the fields that caused this submission to be rejected.</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-          {allFields.map((f) => (
-            <label key={f.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={!!reasons[f.key]}
-                onChange={(e) => setReasons((s) => ({ ...s, [f.key]: e.target.checked }))}
-              />
-              {f.label}
-            </label>
-          ))}
-        </div>
+        <ChecklistGroup
+          items={allFields}
+          selected={reasons}
+          onToggle={(key, checked) => setReasons((s) => ({ ...s, [key]: checked }))}
+        />
 
-        <p style={{ color: "#666", fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Image quality</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-          {IMAGE_QUALITY_FIELDS.map((f) => (
-            <label key={f.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={!!reasons[f.key]}
-                onChange={(e) => setReasons((s) => ({ ...s, [f.key]: e.target.checked }))}
-              />
-              {f.label}
-            </label>
-          ))}
-        </div>
+        <ChecklistGroup
+          title="Image quality"
+          items={IMAGE_QUALITY_FIELDS}
+          selected={reasons}
+          onToggle={(key, checked) => setReasons((s) => ({ ...s, [key]: checked }))}
+        />
         <div className="field-row">
           <label className="field-label">Additional comments</label>
           <textarea
@@ -121,40 +108,9 @@ export default function GovReviewModal({
           </div>
         </div>
         <div style={{ flex: "1 1 280px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
-          {imageUrls.length > 0 ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
-              {imageUrls.map((url, i) => (
-                <div key={url + i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                  <img
-                    src={url}
-                    alt={`Submitted label ${i + 1}`}
-                    onClick={() => setExpandedSrc(url)}
-                    style={{ maxWidth: imageUrls.length > 1 ? 260 : "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8, border: "1px solid #eee", cursor: "zoom-in" }}
-                  />
-                  <SecondaryButton onClick={() => setExpandedSrc(url)}>
-                    Enlarge{imageUrls.length > 1 ? ` Photo ${i + 1}` : " Image"}
-                  </SecondaryButton>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ color: "#666" }}>No image uploaded.</div>
-          )}
+          <ImageGallery imageUrls={imageUrls} altPrefix="Submitted label" enlargeable gap={12} />
         </div>
       </div>
-
-      {expandedSrc && (
-        <div
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out" }}
-          onClick={() => setExpandedSrc(null)}
-        >
-          <img
-            src={expandedSrc}
-            alt="Submitted label (expanded)"
-            style={{ maxWidth: "95vw", maxHeight: "95vh", objectFit: "contain", borderRadius: 8 }}
-          />
-        </div>
-      )}
 
       <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 20 }}>
         <Button onClick={() => updateStatus(SUBMISSION_STATUSES.APPROVED)} disabled={submitting} style={{ background: "#16a34a", border: "none" }}>

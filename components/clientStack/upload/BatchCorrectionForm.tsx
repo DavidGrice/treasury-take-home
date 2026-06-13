@@ -1,8 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import Button from "./Button";
-import SectionTitle from "./SectionTitle";
+import Button from "@/components/ui/Button";
+import SectionTitle from "@/components/ui/SectionTitle";
+import EditableFieldRow from "@/components/ui/EditableFieldRow";
+import UnitFieldRow from "@/components/ui/UnitFieldRow";
+import ImageGallery from "@/components/ui/ImageGallery";
 import {
   computeFieldMatches,
   computeAssessmentScore,
@@ -21,49 +24,6 @@ const FIELD_LABELS: Record<string, string> = {
   commodityStatement: "Commodity statement", appellationOfOrigin: "Appellation of origin",
   percentageForeignWine: "% foreign wine",
 };
-
-// per-field match badge - 'no-input' fields (nothing to compare yet) show nothing
-function MatchBadge({ status }: { status: boolean | 'no-input' | undefined }) {
-  if (status === undefined || status === 'no-input') return null;
-  return (
-    <span style={{ flexShrink: 0, fontSize: 12, whiteSpace: "nowrap", color: status ? '#166534' : '#991b1b' }}>
-      {status ? '✓ matched' : '✗ not found'}
-    </span>
-  );
-}
-
-// shared layout for "value + unit dropdown" rows (alcohol content, net
-// contents) - mirrors UploadForm's single-row pattern: one label, then one
-// inline row of controls (value, optional "%", unit dropdown, optional
-// secondary field), with a trailing match badge
-function UnitFieldRow({
-  label, value, onChange, unitValue, unitOptions, onUnitChange, matchStatus, percent, extra,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  unitValue: string;
-  unitOptions: string[];
-  onUnitChange: (value: string) => void;
-  matchStatus: boolean | 'no-input' | undefined;
-  percent?: boolean;
-  extra?: React.ReactNode;
-}) {
-  return (
-    <div className="form-row">
-      <label className="text-sm">{label}</label>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        <input className="input" style={{ width: 90 }} value={value} onChange={(e) => onChange(e.target.value)} />
-        {percent && <span>%</span>}
-        <select className="input" value={unitValue} onChange={(e) => onUnitChange(e.target.value)}>
-          {unitOptions.map((u) => <option key={u} value={u}>{u}</option>)}
-        </select>
-        {extra}
-        <MatchBadge status={matchStatus} />
-      </div>
-    </div>
-  );
-}
 
 // lightweight correction form for "Batch Needs Review" rows: lets a reviewer
 // fix field values, recompute matches against the stored OCR text (no
@@ -131,11 +91,12 @@ export default function BatchCorrectionForm({ row, onDone }: { row: any; onDone:
     <div style={{ width: "100%" }}>
       <SectionTitle>Correct &amp; Resubmit — {row.id}</SectionTitle>
 
-      {row.image_url && (
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <img src={row.image_url} alt="label" style={{ maxWidth: "100%", maxHeight: 240, objectFit: "contain", marginBottom: 12, border: "1px solid #eee" }} />
-        </div>
-      )}
+      <div style={{ marginBottom: 12 }}>
+        <ImageGallery
+          imageUrls={Array.isArray(row.image_urls) && row.image_urls.length > 0 ? row.image_urls : (row.image_url ? [row.image_url] : [])}
+          enlargeable
+        />
+      </div>
 
       <div style={{ textAlign: "center", marginBottom: 16, fontSize: 18 }}>
         Score: <strong>{score === null ? "N/A" : `${score}%`}</strong>
@@ -143,23 +104,15 @@ export default function BatchCorrectionForm({ row, onDone }: { row: any; onDone:
 
       <div style={{ maxWidth: 560, margin: "0 auto" }}>
 
-      <div className="form-row">
-        <label className="text-sm">Brand</label>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input className="input" style={{ flex: 1, maxWidth: 480 }} value={fields.brand} onChange={(e) => setField("brand", e.target.value)} />
-          <MatchBadge status={fieldMatches.brand} />
-        </div>
-      </div>
+      <EditableFieldRow label="Brand" matchStatus={fieldMatches.brand}>
+        <input className="input" style={{ flex: 1, maxWidth: 480 }} value={fields.brand} onChange={(e) => setField("brand", e.target.value)} />
+      </EditableFieldRow>
 
-      <div className="form-row">
-        <label className="text-sm">Class / Type designation</label>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <select className="input" style={{ flex: 1, maxWidth: 480 }} value={fields.type_designation} onChange={(e) => setField("type_designation", e.target.value)}>
-            {TYPE_DESIGNATIONS.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <MatchBadge status={fieldMatches.typeDesignation} />
-        </div>
-      </div>
+      <EditableFieldRow label="Class / Type designation" matchStatus={fieldMatches.typeDesignation}>
+        <select className="input" style={{ flex: 1, maxWidth: 480 }} value={fields.type_designation} onChange={(e) => setField("type_designation", e.target.value)}>
+          {TYPE_DESIGNATIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </EditableFieldRow>
 
       <UnitFieldRow
         label="Alcohol content"
@@ -188,13 +141,9 @@ export default function BatchCorrectionForm({ row, onDone }: { row: any; onDone:
         )}
       />
 
-      <div className="form-row">
-        <label className="text-sm">Producer</label>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input className="input" style={{ flex: 1, maxWidth: 480 }} value={fields.producer} onChange={(e) => setField("producer", e.target.value)} />
-          <MatchBadge status={fieldMatches.producer} />
-        </div>
-      </div>
+      <EditableFieldRow label="Producer" matchStatus={fieldMatches.producer}>
+        <input className="input" style={{ flex: 1, maxWidth: 480 }} value={fields.producer} onChange={(e) => setField("producer", e.target.value)} />
+      </EditableFieldRow>
 
       <div className="form-row">
         <label className="text-sm">Country of origin</label>
@@ -204,13 +153,9 @@ export default function BatchCorrectionForm({ row, onDone }: { row: any; onDone:
       {activeExtraKeys.map((key) => {
         const dbCol = EXTRA_FIELD_DB_COLUMNS[key];
         return (
-          <div className="form-row" key={key}>
-            <label className="text-sm">{FIELD_LABELS[key] || key}</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input className="input" style={{ flex: 1, maxWidth: 480 }} value={fields[dbCol] || ""} onChange={(e) => setField(dbCol, e.target.value)} />
-              <MatchBadge status={fieldMatches[key]} />
-            </div>
-          </div>
+          <EditableFieldRow key={key} label={FIELD_LABELS[key] || key} matchStatus={fieldMatches[key]}>
+            <input className="input" style={{ flex: 1, maxWidth: 480 }} value={fields[dbCol] || ""} onChange={(e) => setField(dbCol, e.target.value)} />
+          </EditableFieldRow>
         );
       })}
 
