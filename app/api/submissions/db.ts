@@ -64,11 +64,20 @@ export async function ensureTable() {
     await sql.query(`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS ${col} TEXT`);
   }
 
+  await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS image_urls JSONB`;
   await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rejection_reasons JSONB`;
   await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rejection_comment TEXT`;
   await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS assigned_to TEXT`;
   await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS decided_by TEXT`;
   await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS certificate_number TEXT`;
+
+  // bulk-upload batch tracking: rows belonging to a CSV batch share a
+  // batch_id, and batch_claimed_at marks when a Batch Review tab started
+  // processing a row (so a stale claim can be reclaimed by another tab)
+  await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS batch_id TEXT`;
+  await sql`ALTER TABLE submissions ADD COLUMN IF NOT EXISTS batch_claimed_at TIMESTAMPTZ`;
+  await sql`CREATE INDEX IF NOT EXISTS submissions_batch_id_idx ON submissions(batch_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS submissions_status_idx ON submissions(status)`;
 
   // older deployments created `id`/`submission_id` as UUID - widen to TEXT so
   // the new numeric TTB-style IDs can be stored. The FK is dropped since a
@@ -91,6 +100,10 @@ export async function ensureTable() {
   `;
 
   await sql`ALTER TABLE assessments ALTER COLUMN submission_id TYPE TEXT`;
+
+  // raw OCR text from the Batch Review pipeline, kept so the "Batch Needs
+  // Review" correction form can recompute field matches without re-running OCR
+  await sql`ALTER TABLE assessments ADD COLUMN IF NOT EXISTS ocr_raw TEXT`;
 }
 
 // approved/rejected submissions are moved here (and removed from `submissions`)
@@ -107,6 +120,7 @@ const HISTORY_COLUMNS_SQL = `
   warning TEXT,
   assessment_score INTEGER,
   image_url TEXT,
+  image_urls JSONB,
   status TEXT NOT NULL,
   submitted_at TIMESTAMPTZ NOT NULL,
   is_imported TEXT,
@@ -146,6 +160,9 @@ export async function ensureHistoryTables() {
   await sql.query(`ALTER TABLE ${APPROVED_TABLE} ALTER COLUMN id TYPE TEXT`);
   await sql.query(`ALTER TABLE ${REJECTED_TABLE} ALTER COLUMN id TYPE TEXT`);
 
+  await sql.query(`ALTER TABLE ${APPROVED_TABLE} ADD COLUMN IF NOT EXISTS image_urls JSONB`);
+  await sql.query(`ALTER TABLE ${REJECTED_TABLE} ADD COLUMN IF NOT EXISTS image_urls JSONB`);
+
   await sql.query(`ALTER TABLE ${APPROVED_TABLE} ADD COLUMN IF NOT EXISTS assigned_to TEXT`);
   await sql.query(`ALTER TABLE ${REJECTED_TABLE} ADD COLUMN IF NOT EXISTS assigned_to TEXT`);
 
@@ -153,6 +170,9 @@ export async function ensureHistoryTables() {
   await sql.query(`ALTER TABLE ${REJECTED_TABLE} ADD COLUMN IF NOT EXISTS decided_by TEXT`);
   await sql.query(`ALTER TABLE ${APPROVED_TABLE} ADD COLUMN IF NOT EXISTS certificate_number TEXT`);
   await sql.query(`ALTER TABLE ${REJECTED_TABLE} ADD COLUMN IF NOT EXISTS certificate_number TEXT`);
+
+  await sql.query(`ALTER TABLE ${APPROVED_TABLE} ADD COLUMN IF NOT EXISTS batch_id TEXT`);
+  await sql.query(`ALTER TABLE ${REJECTED_TABLE} ADD COLUMN IF NOT EXISTS batch_id TEXT`);
 }
 
 export const SUBMISSION_WITH_ASSESSMENT_SELECT = `
@@ -163,6 +183,7 @@ export const SUBMISSION_WITH_ASSESSMENT_SELECT = `
     a.surgeon_general AS assessment_surgeon_general,
     a.ocr_confidence AS assessment_ocr_confidence,
     a.field_matches AS assessment_field_matches,
+    a.ocr_raw AS assessment_ocr_raw,
     NULL::timestamptz AS decided_at
   FROM submissions s
   LEFT JOIN assessments a ON a.submission_id = s.id
@@ -172,11 +193,12 @@ export const SUBMISSION_WITH_ASSESSMENT_SELECT = `
 // the approved/rejected history tables, so all three can be combined with UNION
 export const SUBMISSION_COLUMNS = [
   "id", "brand", "type_designation", "alcohol_content", "net_contents", "producer", "country", "warning",
-  "assessment_score", "image_url", "status", "submitted_at", "is_imported", "age_statement", "color_disclosure",
+  "assessment_score", "image_url", "image_urls", "status", "submitted_at", "is_imported", "age_statement", "color_disclosure",
   "sulfite_aspartame", "sulfite_declaration", "commodity_statement", "appellation_of_origin", "percentage_foreign_wine",
   "alcohol_unit", "net_contents_unit", "net_contents_secondary", "rejection_reasons", "rejection_comment",
   "assessment_blurry", "assessment_flash", "assessment_warning_present", "assessment_surgeon_general",
   "assessment_ocr_confidence", "assessment_field_matches", "decided_at", "assigned_to", "decided_by", "certificate_number",
+  "batch_id",
 ];
 
 // every submission regardless of status: pending ones from `submissions`

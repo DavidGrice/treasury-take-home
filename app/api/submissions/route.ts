@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
 import { sql } from "@vercel/postgres";
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { ensureTable, SUBMISSION_WITH_ASSESSMENT_SELECT, generateSubmissionId, assignReviewer } from "./db";
+import { uploadImages } from "./storage";
 
 export async function GET() {
   await ensureTable();
@@ -49,42 +47,27 @@ export async function POST(request: NextRequest) {
   const fieldMatchesRaw = form.get("fieldMatches");
   const fieldMatchesJson = fieldMatchesRaw ? String(fieldMatchesRaw) : null;
 
-  let imageUrl: string | null = null;
-  const file = form.get("file");
-  if (file instanceof File && file.size > 0) {
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      try {
-        const blob = await put(`images/${id}-${file.name}`, file, {
-          access: "public",
-          addRandomSuffix: true,
-          token: process.env.BLOB_READ_WRITE_TOKEN,
-        });
-        imageUrl = blob.url;
-      } catch (err) {
-        console.warn("Vercel Blob upload failed, falling back to local disk:", err);
-      }
-    }
-    if (!imageUrl) {
-      // local-disk fallback for environments without a working Blob store
-      const uploadsDir = path.join(process.cwd(), "public", "uploads");
-      await mkdir(uploadsDir, { recursive: true });
-      const safeName = `${id}-${file.name}`.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const buffer = Buffer.from(await file.arrayBuffer());
-      await writeFile(path.join(uploadsDir, safeName), buffer);
-      imageUrl = `/uploads/${safeName}`;
-    }
+  // accept multiple photos under the repeated "files" key, falling back to
+  // the legacy single "file" key for older clients
+  const uploadFiles = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (uploadFiles.length === 0) {
+    const legacyFile = form.get("file");
+    if (legacyFile instanceof File && legacyFile.size > 0) uploadFiles.push(legacyFile);
   }
+
+  const imageUrls = await uploadImages(id, uploadFiles);
+  const imageUrl = imageUrls[0] ?? null;
 
   await sql`
     INSERT INTO submissions (
       id, brand, type_designation, alcohol_content, net_contents,
-      producer, country, warning, assessment_score, image_url,
+      producer, country, warning, assessment_score, image_url, image_urls,
       is_imported, age_statement, color_disclosure, sulfite_aspartame,
       sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine,
       alcohol_unit, net_contents_unit, net_contents_secondary, assigned_to
     ) VALUES (
       ${id}, ${brand}, ${typeDesignation}, ${alcoholContent}, ${netContents},
-      ${producer}, ${country}, ${warning}, ${assessmentScore}, ${imageUrl},
+      ${producer}, ${country}, ${warning}, ${assessmentScore}, ${imageUrl}, ${JSON.stringify(imageUrls)}::jsonb,
       ${isImported}, ${ageStatement}, ${colorDisclosure}, ${sulfiteAspartame},
       ${sulfiteDeclaration}, ${commodityStatement}, ${appellationOfOrigin}, ${percentageForeignWine},
       ${alcoholUnit}, ${netContentsUnit}, ${netContentsSecondary}, ${assignedTo}

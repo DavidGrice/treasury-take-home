@@ -216,8 +216,10 @@ export default function ClientDashboardPage() {
           </div>
           )}
 
-          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center', gap: 12 }}>
             <Button onClick={() => setShowUpload(true)} disabled={loading}>New Form</Button>
+            <Button variant="secondary" onClick={() => router.push("/client/bulk-upload")} disabled={loading}>Bulk Upload</Button>
+            <Button variant="secondary" onClick={() => router.push("/client/batch-review")} disabled={loading}>Batch Review</Button>
           </div>
 
           {showUpload && (

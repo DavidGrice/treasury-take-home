@@ -18,7 +18,11 @@ export default function GovReviewModal({
   const [reasons, setReasons] = useState<Record<string, boolean>>({});
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [expandedSrc, setExpandedSrc] = useState<string | null>(null);
+
+  const imageUrls: string[] = Array.isArray(submission.image_urls) && submission.image_urls.length > 0
+    ? submission.image_urls
+    : (submission.image_url ? [submission.image_url] : []);
 
   const allFields = [...BASE_FIELDS, ...applicableExtraFields(submission)];
   const rejectionFields = [...allFields, ...IMAGE_QUALITY_FIELDS];
@@ -120,30 +124,35 @@ export default function GovReviewModal({
           </div>
         </div>
         <div style={{ flex: "1 1 280px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
-          {submission.image_url ? (
-            <>
-              <img
-                src={submission.image_url}
-                alt="Submitted label"
-                style={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8, border: "1px solid #eee" }}
-              />
-              <SecondaryButton onClick={() => setExpanded(true)}>
-                Expand Image
-              </SecondaryButton>
-            </>
+          {imageUrls.length > 0 ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
+              {imageUrls.map((url, i) => (
+                <div key={url + i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <img
+                    src={url}
+                    alt={`Submitted label ${i + 1}`}
+                    onClick={() => setExpandedSrc(url)}
+                    style={{ maxWidth: imageUrls.length > 1 ? 260 : "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8, border: "1px solid #eee", cursor: "zoom-in" }}
+                  />
+                  <SecondaryButton onClick={() => setExpandedSrc(url)}>
+                    Enlarge{imageUrls.length > 1 ? ` Photo ${i + 1}` : " Image"}
+                  </SecondaryButton>
+                </div>
+              ))}
+            </div>
           ) : (
             <div style={{ color: "#666" }}>No image uploaded.</div>
           )}
         </div>
       </div>
 
-      {expanded && submission.image_url && (
+      {expandedSrc && (
         <div
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out" }}
-          onClick={() => setExpanded(false)}
+          onClick={() => setExpandedSrc(null)}
         >
           <img
-            src={submission.image_url}
+            src={expandedSrc}
             alt="Submitted label (expanded)"
             style={{ maxWidth: "95vw", maxHeight: "95vh", objectFit: "contain", borderRadius: 8 }}
           />

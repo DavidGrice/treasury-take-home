@@ -7,6 +7,9 @@ import { getEmployeeName } from "./employees";
 
 export default function RejectionReviewModal({ submission }: { submission: any }) {
   const rejectedLabels: string[] = Array.isArray(submission.rejection_reasons) ? submission.rejection_reasons : [];
+  const imageUrls: string[] = Array.isArray(submission.image_urls) && submission.image_urls.length > 0
+    ? submission.image_urls
+    : (submission.image_url ? [submission.image_url] : []);
   const allFields = [...BASE_FIELDS, ...applicableExtraFields(submission)];
   const rejectedImageQualityFields = IMAGE_QUALITY_FIELDS.filter((f) => rejectedLabels.includes(f.label));
 
@@ -47,12 +50,17 @@ export default function RejectionReviewModal({ submission }: { submission: any }
             </div>
           </div>
           <div style={{ flex: "1 1 280px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {submission.image_url ? (
-              <img
-                src={submission.image_url}
-                alt="Submitted label"
-                style={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8, border: "1px solid #eee" }}
-              />
+            {imageUrls.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                {imageUrls.map((url, i) => (
+                  <img
+                    key={url + i}
+                    src={url}
+                    alt={`Submitted label ${i + 1}`}
+                    style={{ maxWidth: imageUrls.length > 1 ? 260 : "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8, border: "1px solid #eee" }}
+                  />
+                ))}
+              </div>
             ) : (
               <div style={{ color: "#666" }}>No image uploaded.</div>
             )}

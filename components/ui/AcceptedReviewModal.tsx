@@ -4,6 +4,10 @@ import SectionTitle from "./SectionTitle";
 import { getEmployeeName } from "./employees";
 
 export default function AcceptedReviewModal({ submission }: { submission: any }) {
+  const imageUrls: string[] = Array.isArray(submission.image_urls) && submission.image_urls.length > 0
+    ? submission.image_urls
+    : (submission.image_url ? [submission.image_url] : []);
+
   return (
     <div style={{ padding: 8, display: "flex", flexDirection: "column", height: "75vh" }}>
       <SectionTitle>Approved Submission</SectionTitle>
@@ -47,39 +51,47 @@ export default function AcceptedReviewModal({ submission }: { submission: any })
             </div>
           </div>
           <div style={{ flex: "1 1 280px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {submission.image_url ? (
-              <img
-                src={submission.image_url}
-                alt="Approved label"
-                style={{ maxWidth: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8, border: "1px solid #eee" }}
-              />
+            {imageUrls.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                {imageUrls.map((url, i) => (
+                  <img
+                    key={url + i}
+                    src={url}
+                    alt={`Approved label ${i + 1}`}
+                    style={{ maxWidth: imageUrls.length > 1 ? 260 : "100%", maxHeight: 420, objectFit: "contain", borderRadius: 8, border: "1px solid #eee" }}
+                  />
+                ))}
+              </div>
             ) : (
               <div style={{ color: "#666" }}>No image uploaded.</div>
             )}
           </div>
         </div>
 
-        {submission.image_url && (
-          <div style={{ marginTop: 12, textAlign: "center" }}>
-            <a
-              href={submission.image_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              download
-              className="btn"
-              style={{
-                display: "inline-block",
-                padding: "10px 18px",
-                background: "#1e3a8a",
-                border: "1px solid #1e3a8a",
-                borderRadius: 6,
-                color: "#ffffff",
-                fontWeight: 700,
-                textDecoration: "none",
-              }}
-            >
-              Click to download printable version
-            </a>
+        {imageUrls.length > 0 && (
+          <div style={{ marginTop: 12, textAlign: "center", display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+            {imageUrls.map((url, i) => (
+              <a
+                key={url + i}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+                className="btn"
+                style={{
+                  display: "inline-block",
+                  padding: "10px 18px",
+                  background: "#1e3a8a",
+                  border: "1px solid #1e3a8a",
+                  borderRadius: 6,
+                  color: "#ffffff",
+                  fontWeight: 700,
+                  textDecoration: "none",
+                }}
+              >
+                {imageUrls.length > 1 ? `Download photo ${i + 1}` : "Click to download printable version"}
+              </a>
+            ))}
           </div>
         )}
 
