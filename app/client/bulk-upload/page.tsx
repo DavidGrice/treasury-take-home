@@ -9,6 +9,7 @@ import Modal from "../../../components/ui/Modal";
 import MessageBox from "../../../components/ui/MessageBox";
 import { BULK_UPLOAD_FORMAT_SPEC, EXAMPLE_ROW, MAX_IMAGES_PER_ROW, buildCsvTemplate } from "@/lib/domain/bulkUploadFormatSpec";
 import { convertPdfFiles } from "@/lib/domain/pdfToImage";
+import { useSetNavLoading } from "@/lib/context/NavLoadingContext";
 
 type ValidRow = { filenames: string[]; fields: Record<string, string> };
 type InvalidRow = { filename: string; errors: string[] };
@@ -25,6 +26,7 @@ export default function BulkUploadPage() {
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [uploading, setUploading] = useState(false);
+  useSetNavLoading(uploading);
   const [uploadResult, setUploadResult] = useState<{ batch_id: string; count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(false);

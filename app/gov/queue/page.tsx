@@ -15,12 +15,14 @@ import { sortSubmissions, useSortableTable } from "@/lib/domain/sortSubmissions"
 import { deriveFilterOptions, scoreLabel } from "@/lib/domain/submissionFields";
 import { EMPLOYEES, getEmployeeName } from "@/lib/data/employees";
 import { useSubmissions } from "@/lib/hooks/useSubmissions";
+import { useSetNavLoading } from "@/lib/context/NavLoadingContext";
 import { SUBMISSION_STATUSES, reviewButtonStyle, type SubmissionStatus } from "@/lib/constants/statuses";
 
 type StatusFilter = SubmissionStatus;
 
 export default function GovQueuePage() {
   const { forms, setForms, loading } = useSubmissions();
+  useSetNavLoading(loading);
   const [viewing, setViewing] = useState<any | null>(null);
   const [reviewQueue, setReviewQueue] = useState<{ submissions: any[]; startIndex: number } | null>(null);
   const [viewAllQueue, setViewAllQueue] = useState<{ submissions: any[]; startIndex: number } | null>(null);
@@ -176,7 +178,7 @@ export default function GovQueuePage() {
                 ) : (
                   sortedForms.map((f) => (
                     <tr key={f.id} style={{ borderBottom: '1px solid #f2f2f2' }}>
-                      <td style={{ padding: '8px 6px', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={f.id}>{f.id}</td>
+                      <td style={{ padding: '8px 6px', fontFamily: 'monospace', fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={f.id}>{f.id}</td>
                       <td style={{ padding: '8px 6px' }}>{f.brand || "(no brand)"}</td>
                       <td style={{ padding: '8px 6px' }}>{f.status}</td>
                       <td style={{ padding: '8px 6px' }}>{scoreLabel(f)}</td>

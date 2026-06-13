@@ -12,7 +12,7 @@ export type SidebarNavItem = {
 
 // Persistent left-hand page navigation for the client/gov stacks, styled to
 // match the existing FilterStat tabs (.dashboard-filter / --active).
-export default function SidebarNav({ items }: { items: SidebarNavItem[] }) {
+export default function SidebarNav({ items, disabled = false }: { items: SidebarNavItem[]; disabled?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -26,6 +26,7 @@ export default function SidebarNav({ items }: { items: SidebarNavItem[] }) {
             <button
               key={item.key}
               onClick={() => router.push(item.href)}
+              disabled={disabled}
               className={`dashboard-filter${active ? " dashboard-filter--active" : ""}`}
               style={{
                 textAlign: "left",
@@ -34,6 +35,8 @@ export default function SidebarNav({ items }: { items: SidebarNavItem[] }) {
                 font: "inherit",
                 fontWeight: active ? 700 : 500,
                 width: "100%",
+                opacity: disabled ? 0.5 : 1,
+                cursor: disabled ? "not-allowed" : "pointer",
               }}
             >
               {item.label}
@@ -45,6 +48,7 @@ export default function SidebarNav({ items }: { items: SidebarNavItem[] }) {
       <div className="dashboard-box" style={{ padding: 8 }}>
         <button
           onClick={() => router.push("/auth")}
+          disabled={disabled}
           className="dashboard-filter"
           style={{
             textAlign: "left",
@@ -53,6 +57,8 @@ export default function SidebarNav({ items }: { items: SidebarNavItem[] }) {
             font: "inherit",
             fontWeight: 500,
             width: "100%",
+            opacity: disabled ? 0.5 : 1,
+            cursor: disabled ? "not-allowed" : "pointer",
           }}
         >
           ⏻ Logout

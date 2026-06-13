@@ -19,6 +19,7 @@ import {
   SURGEON_GENERAL_RE,
 } from "@/lib/domain/labelAnalysis";
 import { BATCH_STATUSES, STALE_CLAIM_MS, SUBMISSION_STATUSES } from "@/lib/constants/statuses";
+import { useSetNavLoading } from "@/lib/context/NavLoadingContext";
 
 const PASSING_SCORE = 70;
 
@@ -31,6 +32,7 @@ function BatchReviewContent() {
   const [batches, setBatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  useSetNavLoading(loading || processing);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [processStats, setProcessStats] = useState<{ submitted: number; needsReview: number; failed: number } | null>(null);
   const [showProcessModal, setShowProcessModal] = useState(false);
@@ -201,7 +203,7 @@ function BatchReviewContent() {
                   <tbody>
                     {batches.map((b) => (
                       <tr key={b.batch_id} style={{ borderBottom: "1px solid #f2f2f2" }}>
-                        <td style={{ padding: "8px 6px", fontFamily: "monospace", fontSize: 12 }}>{b.batch_id}</td>
+                        <td style={{ padding: "8px 6px", fontFamily: "monospace", fontSize: 14 }}>{b.batch_id}</td>
                         <td style={{ padding: "8px 6px" }}>{new Date(b.started_at).toLocaleString()}</td>
                         <td style={{ padding: "8px 6px" }}>{b.total}</td>
                         <td style={{ padding: "8px 6px" }}>{b.pending}</td>
@@ -261,7 +263,7 @@ function BatchReviewContent() {
                             setReviewQueue({ rows: needsReviewRows, startIndex: needsReviewRows.findIndex((x) => x.id === r.id) });
                           }}
                         >
-                          <td style={{ padding: "8px 6px", fontFamily: "monospace", fontSize: 12 }}>{r.id}</td>
+                          <td style={{ padding: "8px 6px", fontFamily: "monospace", fontSize: 14 }}>{r.id}</td>
                           <td style={{ padding: "8px 6px" }}>{r.brand || "(no brand)"}</td>
                           <td style={{ padding: "8px 6px" }}>
                             {r.status}

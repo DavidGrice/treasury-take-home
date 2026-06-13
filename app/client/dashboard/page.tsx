@@ -15,6 +15,7 @@ import SortableTh from "../../../components/ui/SortableTh";
 import { sortSubmissions, useSortableTable } from "@/lib/domain/sortSubmissions";
 import { deriveFilterOptions, scoreLabel } from "@/lib/domain/submissionFields";
 import { useSubmissions } from "@/lib/hooks/useSubmissions";
+import { useSetNavLoading } from "@/lib/context/NavLoadingContext";
 import { SUBMISSION_STATUSES, reviewButtonStyle, type SubmissionStatus } from "@/lib/constants/statuses";
 
 type StatusFilter = "All" | SubmissionStatus;
@@ -24,6 +25,7 @@ function ClientDashboardContent() {
   const searchParams = useSearchParams();
   const [showUpload, setShowUpload] = useState(false);
   const { forms, setForms, loading } = useSubmissions();
+  useSetNavLoading(loading);
   const [viewing, setViewing] = useState<any | null>(null);
   const [viewAllQueue, setViewAllQueue] = useState<{ submissions: any[]; startIndex: number } | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("All");
@@ -166,7 +168,7 @@ function ClientDashboardContent() {
               ) : (
                 sortedForms.map((f) => (
                   <tr key={f.id} style={{ borderBottom: '1px solid #f2f2f2' }}>
-                    <td style={{ padding: '8px 6px', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={f.id}>{f.id}</td>
+                    <td style={{ padding: '8px 6px', fontFamily: 'monospace', fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={f.id}>{f.id}</td>
                     <td style={{ padding: '8px 6px' }}>{f.brand || "(no brand)"}</td>
                     <td style={{ padding: '8px 6px' }}>{f.status}</td>
                     <td style={{ padding: '8px 6px' }}>{scoreLabel(f)}</td>
