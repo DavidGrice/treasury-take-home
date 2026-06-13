@@ -1,4 +1,5 @@
 import { TYPE_DESIGNATIONS } from "@/lib/constants/units";
+import US_STATES from "@/lib/data/usStates.json";
 
 // Reference data describing the Bulk Upload CSV/photo format - shown to
 // users via a "Format guide" modal on the Bulk Upload page (not exposed as a
@@ -60,7 +61,18 @@ export const BULK_UPLOAD_FORMAT_SPEC: { csvColumns: FormatColumn[]; photos: { ac
     {
       name: "producer",
       required: true,
-      description: "Name and address of bottler/producer.",
+      description: "Name of bottler/producer.",
+    },
+    {
+      name: "producer_city",
+      required: true,
+      description: "City of the bottler/producer's address.",
+    },
+    {
+      name: "producer_state",
+      required: true,
+      allowedValues: US_STATES,
+      description: "State (or territory) of the bottler/producer's address.",
     },
     {
       name: "is_imported",
@@ -135,7 +147,9 @@ export const EXAMPLE_ROW: Record<string, string> = {
   net_contents: "12",
   net_contents_unit: "Fl. Oz",
   net_contents_secondary: "",
-  producer: "Example Producer, Anytown, ST",
+  producer: "Example Producer",
+  producer_city: "Anytown",
+  producer_state: "California",
   is_imported: "No",
   country: "",
   warning: "",

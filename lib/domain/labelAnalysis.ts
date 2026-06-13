@@ -210,15 +210,6 @@ export const computeFieldMatches = (
       }
     }
 
-    // Brand fragment rescue for common real-world OCR mangles on Bud Light / Platinum etc.
-    // ( "Bup LUGHy", "BUD H ... ALIGHT", "Bup LUGHy PLATINUM" ). Runs after the general
-    // strategies but before the generic edit-distance so it can short-circuit with a clear log.
-    if (!ok && key === 'brand') {
-      if (brandFragmentRescue(inVal, useRaw, log)) {
-        ok = true;
-      }
-    }
-
     // Dedicated rescue for the mandatory "GOVERNMENT WARNING" / "Surgeon General" text.
     // The full warning block is frequently sideways, small, or heavily mangled on real
     // labels. This uses the same fragment/fuzzy-word style as brand + the existing
@@ -232,8 +223,7 @@ export const computeFieldMatches = (
     }
 
     // General OCR fragment / fuzzy-word rescue for *all* remaining fields.
-    // This is the generalization of the "bud-like + light-like" logic the user requested.
-    // It applies the same tolerant per-word matching (direct or small edit-distance)
+    // It applies tolerant per-word matching (direct or small edit-distance)
     // to alcohol, net, producer, typeDesignation, ageStatement, sulfite declarations,
     // commodity statements, color disclosures, and any other input.
     if (!ok) {
@@ -270,40 +260,7 @@ export const computeFieldMatches = (
   return { fm, matches, total };
 };
 
-// Brand-specific rescue for the very common "Bud Light" family (and similar mangled
-// brand names). The flexible .*? already tolerates spaces/garbage between letters,
-// but real photos (especially cans) frequently produce "Bup", "LUGHy", "BUD H ... ALIGHT",
-// "Bup LUGHy PLATINUM" etc. This adds a lightweight fragment check so "BUDLIGHT" (or
-// "Bud Light") input still matches when the OCR got the shape right but individual
-// letters wrong. Uses the same cleaned raw the other strategies see.
-function brandFragmentRescue(inVal: string, useRaw: string, log?: (msg: string) => void): boolean {
-  const lowerIn = (inVal || '').toLowerCase();
-  if (!lowerIn.includes('bud') && !lowerIn.includes('bup') && !lowerIn.includes('budlight')) return false;
-
-  const lowerRaw = (useRaw || '').toLowerCase().replace(/[^a-z]/g, '');
-  // Look for "bud/bup" near "ligh/lugh/light" or "l u g h" patterns, or platinum variants.
-  const hasBudLike = lowerRaw.includes('bud') || lowerRaw.includes('bup') || lowerRaw.includes('bu d') || lowerRaw.includes('b u d');
-  const hasLightLike = lowerRaw.includes('ligh') || lowerRaw.includes('lugh') || lowerRaw.includes('light') || lowerRaw.includes('l u g h') || lowerRaw.includes('ligh t');
-  if (hasBudLike && hasLightLike) {
-    log?.(`Field match (brand fragment rescue): brand="${inVal}" (bud-like + light-like fragments found in OCR raw)`);
-    return true;
-  }
-  // Also accept if a single rect/whole gave something very close to the full brand (edit distance on normalized)
-  const normIn = normalizeForMatch(inVal);
-  const normRaw = normalizeForMatch(useRaw);
-  if (normIn && normRaw) {
-    const dist = levenshtein(normIn, normRaw);
-    const maxLen = Math.max(normIn.length, normRaw.length) || 1;
-    if (dist <= 4 || (dist / maxLen) <= 0.35) {
-      log?.(`Field match (brand fragment rescue): brand="${inVal}" (close edit-distance in raw)`);
-      return true;
-    }
-  }
-  return false;
-}
-
 // General "OCR fragment / fuzzy word" rescue for *all* input fields.
-// Mirrors the spirit of the Bud Light specific rescue but applies broadly:
 // - Split user input into significant words.
 // - Check if those words (or close variants via small edit distance) appear
 //   anywhere in the OCR raw (after the same normalization used elsewhere).
@@ -351,10 +308,9 @@ function looseWordRescue(inVal: string, useRaw: string, log?: (msg: string) => v
 }
 
 // Dedicated rescue for "GOVERNMENT WARNING" and "Surgeon General" (the two
-// critical phrases in the mandatory health warning block).
-// Modeled directly on the brandFragmentRescue + looseWordRescue style the user
-// asked to generalize. It looks for the key word pairs with tolerance for the
-// very common OCR manglings (sideways text, small print, glare on cans, etc.)
+// critical phrases in the mandatory health warning block). It looks for the
+// key word pairs with tolerance for the very common OCR manglings (sideways
+// text, small print, glare on cans, etc.)
 // and re-uses the existing misspellings already collected in parseFromRects.
 // This ensures that when a user provides the canonical warning text (or a
 // "warningPresent"/"surgeonGeneral" field), the checklist match succeeds if

@@ -23,6 +23,8 @@ export async function POST(request: NextRequest) {
   const netContentsUnit = String(form.get("netContentsUnit") || "");
   const netContentsSecondary = String(form.get("netContentsSecondary") || "");
   const producer = String(form.get("producer") || "");
+  const producerCity = String(form.get("producerCity") || "");
+  const producerState = String(form.get("producerState") || "");
   const country = String(form.get("country") || "");
   const warning = String(form.get("warning") || "");
   const assessmentScoreRaw = form.get("assessmentScore");
@@ -62,13 +64,13 @@ export async function POST(request: NextRequest) {
     INSERT INTO submissions (
       id, brand, type_designation, alcohol_content, net_contents,
       producer, country, warning, assessment_score, image_url, image_urls,
-      is_imported, age_statement, color_disclosure, sulfite_aspartame,
+      is_imported, producer_city, producer_state, age_statement, color_disclosure, sulfite_aspartame,
       sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine,
       alcohol_unit, net_contents_unit, net_contents_secondary, assigned_to
     ) VALUES (
       ${id}, ${brand}, ${typeDesignation}, ${alcoholContent}, ${netContents},
       ${producer}, ${country}, ${warning}, ${assessmentScore}, ${imageUrl}, ${JSON.stringify(imageUrls)}::jsonb,
-      ${isImported}, ${ageStatement}, ${colorDisclosure}, ${sulfiteAspartame},
+      ${isImported}, ${producerCity}, ${producerState}, ${ageStatement}, ${colorDisclosure}, ${sulfiteAspartame},
       ${sulfiteDeclaration}, ${commodityStatement}, ${appellationOfOrigin}, ${percentageForeignWine},
       ${alcoholUnit}, ${netContentsUnit}, ${netContentsSecondary}, ${assignedTo}
     )

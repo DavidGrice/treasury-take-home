@@ -13,7 +13,7 @@ const BATCH_INPLACE_STATUSES: string[] = [
 const CORRECTABLE_FIELDS = [
   "brand", "type_designation", "alcohol_content", "alcohol_unit",
   "net_contents", "net_contents_unit", "net_contents_secondary",
-  "producer", "country", "is_imported", "warning",
+  "producer", "producer_city", "producer_state", "country", "is_imported", "warning",
   "age_statement", "color_disclosure", "sulfite_aspartame",
   "sulfite_declaration", "commodity_statement", "appellation_of_origin",
   "percentage_foreign_wine",
@@ -63,22 +63,22 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   await sql.query(
     `INSERT INTO ${targetTable} (
       id, brand, type_designation, alcohol_content, net_contents, producer, country, warning,
-      assessment_score, image_url, image_urls, status, submitted_at, is_imported, age_statement, color_disclosure,
+      assessment_score, image_url, image_urls, status, submitted_at, is_imported, producer_city, producer_state, age_statement, color_disclosure,
       sulfite_aspartame, sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine,
       alcohol_unit, net_contents_unit, net_contents_secondary, rejection_reasons, rejection_comment,
       assessment_blurry, assessment_flash, assessment_warning_present, assessment_surgeon_general,
       assessment_ocr_confidence, assessment_field_matches, assigned_to, decided_by, certificate_number, batch_id
     ) VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8,
-      $9, $10, $11::jsonb, $12, $13, $14, $15, $16,
-      $17, $18, $19, $20, $21,
-      $22, $23, $24, $25::jsonb, $26,
-      $27, $28, $29, $30,
-      $31, $32::jsonb, $33, $34, $35, $36
+      $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18,
+      $19, $20, $21, $22, $23,
+      $24, $25, $26, $27::jsonb, $28,
+      $29, $30, $31, $32,
+      $33, $34::jsonb, $35, $36, $37, $38
     )`,
     [
       row.id, row.brand, row.type_designation, row.alcohol_content, row.net_contents, row.producer, row.country, row.warning,
-      row.assessment_score, row.image_url, imageUrls, status, row.submitted_at, row.is_imported, row.age_statement, row.color_disclosure,
+      row.assessment_score, row.image_url, imageUrls, status, row.submitted_at, row.is_imported, row.producer_city, row.producer_state, row.age_statement, row.color_disclosure,
       row.sulfite_aspartame, row.sulfite_declaration, row.commodity_statement, row.appellation_of_origin, row.percentage_foreign_wine,
       row.alcohol_unit, row.net_contents_unit, row.net_contents_secondary, rejectionReasons, rejectionComment,
       row.assessment_blurry, row.assessment_flash, row.assessment_warning_present, row.assessment_surgeon_general,

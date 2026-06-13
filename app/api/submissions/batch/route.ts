@@ -8,7 +8,7 @@ import { BATCH_STATUSES, SUBMISSION_STATUSES } from "@/lib/constants/statuses";
 const ROW_FIELDS = [
   "brand", "type_designation", "alcohol_content", "alcohol_unit",
   "net_contents", "net_contents_unit", "net_contents_secondary",
-  "producer", "country", "is_imported", "warning",
+  "producer", "producer_city", "producer_state", "country", "is_imported", "warning",
   "age_statement", "color_disclosure", "sulfite_aspartame",
   "sulfite_declaration", "commodity_statement", "appellation_of_origin",
   "percentage_foreign_wine",
@@ -69,14 +69,14 @@ export async function POST(request: NextRequest) {
           await sql`
             INSERT INTO submissions (
               id, brand, type_designation, alcohol_content, net_contents,
-              producer, country, warning, image_url, image_urls,
+              producer, producer_city, producer_state, country, warning, image_url, image_urls,
               is_imported, age_statement, color_disclosure, sulfite_aspartame,
               sulfite_declaration, commodity_statement, appellation_of_origin, percentage_foreign_wine,
               alcohol_unit, net_contents_unit, net_contents_secondary, assigned_to,
               status, batch_id
             ) VALUES (
               ${id}, ${values.brand}, ${values.type_designation}, ${values.alcohol_content}, ${values.net_contents},
-              ${values.producer}, ${values.country}, ${values.warning}, ${imageUrl}, ${JSON.stringify(imageUrls)}::jsonb,
+              ${values.producer}, ${values.producer_city}, ${values.producer_state}, ${values.country}, ${values.warning}, ${imageUrl}, ${JSON.stringify(imageUrls)}::jsonb,
               ${values.is_imported}, ${values.age_statement}, ${values.color_disclosure}, ${values.sulfite_aspartame},
               ${values.sulfite_declaration}, ${values.commodity_statement}, ${values.appellation_of_origin}, ${values.percentage_foreign_wine},
               ${values.alcohol_unit}, ${values.net_contents_unit}, ${values.net_contents_secondary}, ${assignedTo},

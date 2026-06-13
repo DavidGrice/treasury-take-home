@@ -1,5 +1,6 @@
 import { TYPE_DESIGNATIONS, ALCOHOL_UNITS, NET_CONTENTS_UNITS } from "@/lib/constants/units";
 import { MAX_IMAGES_PER_ROW } from "@/lib/domain/bulkUploadFormatSpec";
+import US_STATES from "@/lib/data/usStates.json";
 
 // hand-rolled RFC4180-subset CSV parser (no npm dependency): comma-separated,
 // double-quote wrapped fields supporting embedded commas/newlines/escaped
@@ -63,7 +64,7 @@ export function parseCSV(text: string): { headers: string[]; rows: Record<string
 const PASSTHROUGH_COLUMNS = [
   "brand", "type_designation", "alcohol_content", "alcohol_unit",
   "net_contents", "net_contents_unit", "net_contents_secondary",
-  "producer", "country", "is_imported", "warning",
+  "producer", "producer_city", "producer_state", "country", "is_imported", "warning",
   "age_statement", "color_disclosure", "sulfite_aspartame",
   "sulfite_declaration", "commodity_statement", "appellation_of_origin",
   "percentage_foreign_wine",
@@ -86,6 +87,12 @@ export function mapCsvRowToSubmissionFields(row: Record<string, string>): { valu
 
   if (!values.brand) errors.push("Missing required field: brand");
   if (!values.producer) errors.push("Missing required field: producer");
+
+  if (!values.producer_city) errors.push("Missing required field: producer_city");
+  if (!values.producer_state) errors.push("Missing required field: producer_state");
+  else if (!US_STATES.includes(values.producer_state)) {
+    errors.push(`Invalid producer_state "${values.producer_state}" (expected one of: ${US_STATES.join(", ")})`);
+  }
 
   if (!values.type_designation) errors.push("Missing required field: type_designation");
   else if (!TYPE_DESIGNATIONS.includes(values.type_designation)) {

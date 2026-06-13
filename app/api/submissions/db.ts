@@ -4,6 +4,8 @@ import { EMPLOYEES } from "@/lib/data/employees";
 // extra Class/Type-specific label fields (see UploadForm.tsx TYPE_FIELD_CONFIG)
 const EXTRA_FIELD_COLUMNS = [
   "is_imported",
+  "producer_city",
+  "producer_state",
   "age_statement",
   "color_disclosure",
   "sulfite_aspartame",
@@ -124,6 +126,8 @@ const HISTORY_COLUMNS_SQL = `
   status TEXT NOT NULL,
   submitted_at TIMESTAMPTZ NOT NULL,
   is_imported TEXT,
+  producer_city TEXT,
+  producer_state TEXT,
   age_statement TEXT,
   color_disclosure TEXT,
   sulfite_aspartame TEXT,
@@ -173,6 +177,11 @@ export async function ensureHistoryTables() {
 
   await sql.query(`ALTER TABLE ${APPROVED_TABLE} ADD COLUMN IF NOT EXISTS batch_id TEXT`);
   await sql.query(`ALTER TABLE ${REJECTED_TABLE} ADD COLUMN IF NOT EXISTS batch_id TEXT`);
+
+  await sql.query(`ALTER TABLE ${APPROVED_TABLE} ADD COLUMN IF NOT EXISTS producer_city TEXT`);
+  await sql.query(`ALTER TABLE ${REJECTED_TABLE} ADD COLUMN IF NOT EXISTS producer_city TEXT`);
+  await sql.query(`ALTER TABLE ${APPROVED_TABLE} ADD COLUMN IF NOT EXISTS producer_state TEXT`);
+  await sql.query(`ALTER TABLE ${REJECTED_TABLE} ADD COLUMN IF NOT EXISTS producer_state TEXT`);
 }
 
 export const SUBMISSION_WITH_ASSESSMENT_SELECT = `
@@ -193,7 +202,7 @@ export const SUBMISSION_WITH_ASSESSMENT_SELECT = `
 // the approved/rejected history tables, so all three can be combined with UNION
 export const SUBMISSION_COLUMNS = [
   "id", "brand", "type_designation", "alcohol_content", "net_contents", "producer", "country", "warning",
-  "assessment_score", "image_url", "image_urls", "status", "submitted_at", "is_imported", "age_statement", "color_disclosure",
+  "assessment_score", "image_url", "image_urls", "status", "submitted_at", "is_imported", "producer_city", "producer_state", "age_statement", "color_disclosure",
   "sulfite_aspartame", "sulfite_declaration", "commodity_statement", "appellation_of_origin", "percentage_foreign_wine",
   "alcohol_unit", "net_contents_unit", "net_contents_secondary", "rejection_reasons", "rejection_comment",
   "assessment_blurry", "assessment_flash", "assessment_warning_present", "assessment_surgeon_general",

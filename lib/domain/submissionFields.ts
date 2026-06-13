@@ -4,7 +4,7 @@ export const BASE_FIELDS: { key: string; label: string }[] = [
   { key: "type_designation", label: "Class / Type designation" },
   { key: "alcohol_content", label: "Alcohol content" },
   { key: "net_contents", label: "Net contents" },
-  { key: "producer", label: "Name and address of bottler/producer" },
+  { key: "producer", label: "Bottler/producer (Name, City, State)" },
   { key: "country", label: "Country of origin" },
 ];
 
@@ -61,6 +61,9 @@ export const fieldValue = (submission: any, key: string) => {
   }
   if (key === "net_contents") return netContentsDisplay(submission);
   if (key === "country") return submission.is_imported === "Yes" ? submission.country || "" : "N/A (domestic)";
+  if (key === "producer") {
+    return [submission.producer, submission.producer_city, submission.producer_state].filter(Boolean).join(", ");
+  }
   return submission[key] || "";
 };
 

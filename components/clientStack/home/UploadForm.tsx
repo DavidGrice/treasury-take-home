@@ -7,6 +7,7 @@ import Modal from "@/components/ui/Modal";
 import Spinner from "@/components/ui/Spinner";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { COUNTRIES } from "@/lib/data/countries";
+import US_STATES from "@/lib/data/usStates.json";
 import { ChecklistItem, getChecklistItems } from "@/lib/data/checklistData";
 import SectionTitle from "@/components/ui/SectionTitle";
 import { TYPE_FIELD_CONFIG, EXTRA_FIELD_DB_COLUMNS, UNITS_WITH_FL_OZ_REMAINDER } from "@/lib/domain/labelAnalysis";
@@ -123,6 +124,8 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
   const [netContentsUnit, setNetContentsUnit] = useState(NET_CONTENTS_UNITS[0]);
   const [netContentsSecondary, setNetContentsSecondary] = useState("");
   const [producer, setProducer] = useState("");
+  const [producerCity, setProducerCity] = useState("");
+  const [producerState, setProducerState] = useState("");
   const [country, setCountry] = useState("");
   const [isImported, setIsImported] = useState(false);
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
@@ -171,6 +174,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       if (index === prev) return 0;
       return prev;
     });
+    if (inputRef.current) inputRef.current.value = "";
     resetAnalysis();
   };
 
@@ -200,6 +204,8 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     setNetContentsUnit(NET_CONTENTS_UNITS[0]);
     setNetContentsSecondary("");
     setProducer("");
+    setProducerCity("");
+    setProducerState("");
     setCountry("");
     setIsImported(false);
     setExtraFields({});
@@ -282,6 +288,8 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     setNetContentsUnit(initialData.net_contents_unit || NET_CONTENTS_UNITS[0]);
     setNetContentsSecondary(initialData.net_contents_secondary || "");
     setProducer(initialData.producer || "");
+    setProducerCity(initialData.producer_city || "");
+    setProducerState(initialData.producer_state || "");
     setCountry(initialData.country || "");
     setIsImported(initialData.is_imported === 'Yes');
 
@@ -357,6 +365,8 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
     formData.append("netContentsUnit", netContentsUnit);
     formData.append("netContentsSecondary", netContentsSecondary);
     formData.append("producer", producer);
+    formData.append("producerCity", producerCity);
+    formData.append("producerState", producerState);
     formData.append("country", isImported ? country : '');
     formData.append("isImported", isImported ? 'Yes' : 'No');
     formData.append("warning", checkStatus['warningPresent'] === 'ok' ? 'Yes' : 'No');
@@ -393,7 +403,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
 
   const typeConfig = TYPE_FIELD_CONFIG[typeDesignation] || { required: [], applicable: [] };
 
-  const allFieldsFilled = [brand, typeDesignation, alcoholContent, netContents, producer].every(v => (v || '').toString().trim().length > 0)
+  const allFieldsFilled = [brand, typeDesignation, alcoholContent, netContents, producer, producerCity, producerState].every(v => (v || '').toString().trim().length > 0)
     && !netContentsError
     && (!isImported || country.trim().length > 0)
     && typeConfig.required.every((k) => (extraFields[k] || '').trim().length > 0)
@@ -408,7 +418,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
           <span className="required-asterisk" style={{ position: 'absolute', top: 0, right: 0, fontSize: 20 }}>*</span>
           <SectionTitle>Upload Image</SectionTitle>
           <div style={{ position: 'relative', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div className="upload-area" style={{ position: 'relative', width: 'auto', maxWidth: 420, margin: '0 auto' }} onDrop={onDrop} onDragOver={onDragOver}>
+              <div className="upload-area" style={{ position: 'relative', width: 420, maxWidth: 420, margin: '0 auto', textAlign: 'center' }} onDrop={onDrop} onDragOver={onDragOver}>
                 {previews.length > 0 ? (
                   <ImageAnnotator ref={annotRef} src={previews[activeImageIndex]} onRecognize={(blob) => runOpenCVOnBlob(blob)} />
                 ) : (
@@ -454,8 +464,8 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                 )}
                   {!viewOnly && files.length < MAX_IMAGES && (
                     <>
-                      <input ref={inputRef} type="file" accept="image/*,application/pdf" multiple onChange={onFileChange} style={previews.length > 0 ? { display: 'none' } : { marginTop: 8 }} />
-                      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                      <input ref={inputRef} type="file" accept="image/*,application/pdf" multiple onChange={onFileChange} style={{ display: 'none' }} />
+                      <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: 'center' }}>
                         <Button type="button" variant="secondary" onClick={() => { if (inputRef.current) inputRef.current.click(); }}>
                           {previews.length > 0 ? 'Add more photos' : 'Upload file(s)'}
                         </Button>
@@ -495,6 +505,8 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
 
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 </div>
+
+                <h4 style={{ margin: "0", fontSize: 14, fontWeight: 700, color: "#000" }}>General Information</h4>
 
                 <div className="field-row">
                   <label className="field-label">Brand name <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'brand')} onOpen={setInfoModalItems} /></label>
@@ -590,10 +602,34 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
                   )}
                 </div>
 
+                <h4 style={{ margin: "8px 0 0", fontSize: 14, fontWeight: 700, color: "#000" }}>Bottler / Producer</h4>
+
                 <div className="field-row">
-                  <label className="field-label">Name and address of bottler/producer <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'producer')} onOpen={setInfoModalItems} /></label>
+                  <label className="field-label">Name <span className="required-asterisk">*</span><InfoButton items={getChecklistItems(typeDesignation, 'producer')} onOpen={setInfoModalItems} /></label>
                   <input required disabled={viewOnly} className="field-input" value={producer} onChange={(e) => setProducer(e.target.value)} />
                 </div>
+
+                <div className="field-row">
+                  <label className="field-label">City <span className="required-asterisk">*</span></label>
+                  <input required disabled={viewOnly} className="field-input" value={producerCity} onChange={(e) => setProducerCity(e.target.value)} />
+                </div>
+
+                <div className="field-row">
+                  <label className="field-label">State <span className="required-asterisk">*</span></label>
+                  <SearchableSelect
+                    required
+                    disabled={viewOnly}
+                    className="field-input"
+                    value={producerState}
+                    onChange={setProducerState}
+                    placeholder="Search for a state…"
+                    options={US_STATES}
+                  />
+                </div>
+
+                {typeDesignation && (typeConfig.required.length > 0 || typeConfig.applicable.length > 0) && (
+                  <h4 style={{ margin: "8px 0 0", fontSize: 14, fontWeight: 700, color: "#000" }}>{typeDesignation} Specific Information</h4>
+                )}
 
                 {typeConfig.required.map((key) => {
                   const meta = EXTRA_FIELD_META[key];
@@ -878,6 +914,9 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       {isSubmitting && (
         <Modal>
           <Spinner label="Submitting..." />
+          <p style={{ textAlign: 'center', color: '#555', fontSize: 13, marginTop: 8 }}>
+            Please don't close this window or browser.
+          </p>
         </Modal>
       )}
       {showConfirmModal && (

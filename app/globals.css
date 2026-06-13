@@ -244,6 +244,9 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  overflow-y: auto;
+  padding: 24px 0;
+  box-sizing: border-box;
 }
 .modal-content {
   background: white;
@@ -256,6 +259,7 @@ body {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  margin: auto;
 }
 .modal-content { position: relative; }
 
@@ -263,6 +267,7 @@ body {
    the close button (absolutely positioned with negative offsets) outside the
    scroll area so it isn't clipped, and gives an always-visible scrollbar */
 .modal-body {
+  flex: 1 1 auto;
   overflow-y: scroll;
   scrollbar-gutter: stable;
   min-height: 0;
