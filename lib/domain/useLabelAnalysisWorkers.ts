@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { parseFromRects, type ImageAnalysis, type ParsedFields } from "./labelAnalysis";
+import { parseFromRects, type ImageAnalysis, type ParsedFields } from "@/lib/domain/labelAnalysis";
 
 // owns the persistent OpenCV/OCR Web Workers used by the label-analysis
 // pipeline: created lazily on first use and reused for every subsequent

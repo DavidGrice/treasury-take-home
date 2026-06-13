@@ -6,7 +6,8 @@ import DashboardBox from "../../../components/ui/DashboardBox";
 import SectionTitle from "../../../components/ui/SectionTitle";
 import Button from "../../../components/ui/Button";
 import Modal from "../../../components/ui/Modal";
-import { BULK_UPLOAD_FORMAT_SPEC, EXAMPLE_ROW, buildCsvTemplate } from "../../../components/ui/bulkUploadFormatSpec";
+import MessageBox from "../../../components/ui/MessageBox";
+import { BULK_UPLOAD_FORMAT_SPEC, EXAMPLE_ROW, buildCsvTemplate } from "@/lib/domain/bulkUploadFormatSpec";
 
 type ValidRow = { filename: string; fields: Record<string, string> };
 type InvalidRow = { filename: string; errors: string[] };
@@ -107,7 +108,7 @@ export default function BulkUploadPage() {
     setError(null);
     setUploadResult(null);
 
-    const { parseCSV, mapCsvRowToSubmissionFields } = await import("../../../components/ui/csvParser");
+    const { parseCSV, mapCsvRowToSubmissionFields } = await import("@/lib/domain/csvParser");
     const text = await csvFile.text();
     const { rows } = parseCSV(text);
 
@@ -297,18 +298,18 @@ export default function BulkUploadPage() {
           </div>
 
           {error && (
-            <div style={{ marginTop: 16, padding: 12, background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 6, color: "#991b1b" }}>
+            <MessageBox variant="error" style={{ marginTop: 16, color: "#991b1b" }}>
               {error}
-            </div>
+            </MessageBox>
           )}
 
           {result && (
             <div style={{ marginTop: 16 }}>
-              <div style={{ padding: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, color: "#166534" }}>
+              <MessageBox variant="success">
                 {result.validRows.length} valid row(s) ready to queue.
-              </div>
+              </MessageBox>
               {result.invalidRows.length > 0 && (
-                <div style={{ marginTop: 12, padding: 12, background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 6 }}>
+                <MessageBox variant="error" style={{ marginTop: 12 }}>
                   <strong>{result.invalidRows.length} row(s) skipped — fix and re-upload separately:</strong>
                   <ul style={{ marginTop: 8, marginBottom: 0 }}>
                     {result.invalidRows.map((r, i) => (
@@ -317,7 +318,7 @@ export default function BulkUploadPage() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </MessageBox>
               )}
             </div>
           )}

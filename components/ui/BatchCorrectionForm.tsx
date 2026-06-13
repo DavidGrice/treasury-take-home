@@ -10,11 +10,9 @@ import {
   TYPE_FIELD_CONFIG,
   EXTRA_FIELD_DB_COLUMNS,
   type FieldMatches,
-} from "./labelAnalysis";
-
-const ALCOHOL_UNITS = ["Alc./Vol.", "Alc./Wt."];
-const NET_CONTENTS_UNITS = ["Fl. Oz", "Pint", "Quart", "Gallon", "mL", "L"];
-const TYPE_DESIGNATIONS = ["Beer", "Malt Beverage", "Distilled Spirits", "Wine"];
+} from "@/lib/domain/labelAnalysis";
+import { TYPE_DESIGNATIONS, ALCOHOL_UNITS, NET_CONTENTS_UNITS } from "@/lib/constants/units";
+import { SUBMISSION_STATUSES } from "@/lib/constants/statuses";
 
 const FIELD_LABELS: Record<string, string> = {
   brand: "Brand", typeDesignation: "Class / Type designation", alcohol: "Alcohol content", net: "Net contents", producer: "Producer",
@@ -115,7 +113,7 @@ export default function BatchCorrectionForm({ row, onDone }: { row: any; onDone:
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: "Submitted",
+          status: SUBMISSION_STATUSES.SUBMITTED,
           fields,
           assessment: { score: newScore, fieldMatches: fm },
         }),

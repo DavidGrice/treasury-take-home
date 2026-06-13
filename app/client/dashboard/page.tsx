@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardBox from "../../../components/ui/DashboardBox";
 import UploadForm from "../../../components/ui/UploadForm";
@@ -11,47 +11,29 @@ import AcceptedReviewModal from "../../../components/ui/AcceptedReviewModal";
 import FilterStat from "../../../components/ui/FilterStat";
 import Spinner from "../../../components/ui/Spinner";
 import SortableTh from "../../../components/ui/SortableTh";
-import { sortSubmissions, SortDir, SortKey } from "../../../components/ui/sortSubmissions";
+import { sortSubmissions, useSortableTable } from "@/lib/domain/sortSubmissions";
+import { deriveFilterOptions, scoreLabel } from "@/lib/domain/submissionFields";
+import { useSubmissions } from "@/lib/hooks/useSubmissions";
+import { SUBMISSION_STATUSES, type SubmissionStatus } from "@/lib/constants/statuses";
 
-type StatusFilter = "All" | "Submitted" | "Approved" | "Rejected";
+type StatusFilter = "All" | SubmissionStatus;
 
 export default function ClientDashboardPage() {
   const router = useRouter();
   const [showUpload, setShowUpload] = useState(false);
-  const [forms, setForms] = useState<any[]>([]);
+  const { forms, setForms, loading } = useSubmissions();
   const [viewing, setViewing] = useState<any | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("All");
   const [idFilter, setIdFilter] = useState("All");
   const [brandFilter, setBrandFilter] = useState("All");
   const [scoreFilter, setScoreFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("All");
-  const [loading, setLoading] = useState(true);
-  const [sortKey, setSortKey] = useState<SortKey>("submitted_at");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-
-  const handleSort = (key: SortKey) => {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  };
-
-  useEffect(() => {
-    fetch("/api/submissions/all")
-      .then((res) => res.json())
-      .then((data) => setForms(Array.isArray(data) ? data : []))
-      .catch((err) => console.error("Failed to load submissions:", err))
-      .finally(() => setLoading(false));
-  }, []);
+  const { sortKey, sortDir, handleSort } = useSortableTable("submitted_at", "desc");
 
   const totalCount = forms.length;
-  const submittedCount = forms.filter((f) => f.status === "Submitted").length;
-  const acceptedCount = forms.filter((f) => f.status === "Approved").length;
-  const rejectedCount = forms.filter((f) => f.status === "Rejected").length;
-
-  const scoreLabel = (f: any) => (f.assessment_score === null || f.assessment_score === undefined ? "N/A" : `${f.assessment_score}%`);
+  const submittedCount = forms.filter((f) => f.status === SUBMISSION_STATUSES.SUBMITTED).length;
+  const acceptedCount = forms.filter((f) => f.status === SUBMISSION_STATUSES.APPROVED).length;
+  const rejectedCount = forms.filter((f) => f.status === SUBMISSION_STATUSES.REJECTED).length;
 
   // forms are already ordered newest-first by ALL_SUBMISSIONS_QUERY
   const statusFilteredForms = filter === "All" ? forms : forms.filter((f) => f.status === filter);
@@ -62,17 +44,7 @@ export default function ClientDashboardPage() {
     .filter((f) => scoreFilter === "All" || scoreLabel(f) === scoreFilter)
     .filter((f) => dateFilter === "All" || new Date(f.submitted_at).toLocaleDateString() === dateFilter);
 
-  // populate each filter dropdown with only the values present within the
-  // currently selected status (Total/Submitted/Accepted/Rejected)
-  const idOptions = Array.from(new Set(statusFilteredForms.map((f) => String(f.id)))).sort();
-  const brandOptions = Array.from(new Set(statusFilteredForms.map((f) => f.brand || "(no brand)"))).sort();
-  const scoreOptions = Array.from(new Set(statusFilteredForms.map(scoreLabel))).sort((a, b) => {
-    if (a === "N/A") return 1;
-    if (b === "N/A") return -1;
-    return parseInt(b) - parseInt(a);
-  });
-  const submittedDates = Array.from(new Set(statusFilteredForms.map((f) => new Date(f.submitted_at).toLocaleDateString())))
-    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  const { idOptions, brandOptions, scoreOptions, dateOptions: submittedDates } = deriveFilterOptions(statusFilteredForms);
 
   const sortedForms = sortSubmissions(visibleForms, sortKey, sortDir);
 
@@ -101,9 +73,9 @@ export default function ClientDashboardPage() {
       <DashboardBox
         topItems={[
           <FilterStat key="all" label="Total" count={totalCount} active={filter === "All"} onSelect={() => handleStatusFilter("All")} />,
-          <FilterStat key="submitted" label="Submitted" count={submittedCount} active={filter === "Submitted"} onSelect={() => handleStatusFilter("Submitted")} />,
-          <FilterStat key="accepted" label="Accepted" count={acceptedCount} active={filter === "Approved"} onSelect={() => handleStatusFilter("Approved")} />,
-          <FilterStat key="rejected" label="Rejected" count={rejectedCount} active={filter === "Rejected"} onSelect={() => handleStatusFilter("Rejected")} />,
+          <FilterStat key="submitted" label="Submitted" count={submittedCount} active={filter === SUBMISSION_STATUSES.SUBMITTED} onSelect={() => handleStatusFilter(SUBMISSION_STATUSES.SUBMITTED)} />,
+          <FilterStat key="accepted" label="Accepted" count={acceptedCount} active={filter === SUBMISSION_STATUSES.APPROVED} onSelect={() => handleStatusFilter(SUBMISSION_STATUSES.APPROVED)} />,
+          <FilterStat key="rejected" label="Rejected" count={rejectedCount} active={filter === SUBMISSION_STATUSES.REJECTED} onSelect={() => handleStatusFilter(SUBMISSION_STATUSES.REJECTED)} />,
         ]}
       >
         <div>
@@ -198,9 +170,9 @@ export default function ClientDashboardPage() {
                         variant="secondary"
                         onClick={() => setViewing(f)}
                         style={
-                          f.status === 'Rejected'
+                          f.status === SUBMISSION_STATUSES.REJECTED
                             ? { background: '#ef4444', color: 'white', border: 'none' }
-                            : f.status === 'Approved'
+                            : f.status === SUBMISSION_STATUSES.APPROVED
                             ? { background: '#16a34a', color: 'white', border: 'none' }
                             : undefined
                         }
@@ -230,9 +202,9 @@ export default function ClientDashboardPage() {
 
           {viewing && (
             <Modal onClose={() => setViewing(null)}>
-              {viewing.status === 'Rejected' ? (
+              {viewing.status === SUBMISSION_STATUSES.REJECTED ? (
                 <RejectionReviewModal submission={viewing} />
-              ) : viewing.status === 'Approved' ? (
+              ) : viewing.status === SUBMISSION_STATUSES.APPROVED ? (
                 <AcceptedReviewModal submission={viewing} />
               ) : (
                 <UploadForm viewOnly initialData={viewing} />

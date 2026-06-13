@@ -6,21 +6,17 @@ import ImageAnnotator from "./ImageAnnotator";
 import Modal from "./Modal";
 import Spinner from "./Spinner";
 import SearchableSelect from "./SearchableSelect";
-import { COUNTRIES } from "./countries";
-import { ChecklistItem, getChecklistItems } from "./checklistData";
+import { COUNTRIES } from "@/lib/data/countries";
+import { ChecklistItem, getChecklistItems } from "@/lib/data/checklistData";
 import SectionTitle from "./SectionTitle";
-import { computeFieldMatches, computeAssessmentScore, TYPE_FIELD_CONFIG, EXTRA_FIELD_DB_COLUMNS, UNITS_WITH_FL_OZ_REMAINDER, type ImageAnalysis } from "./labelAnalysis";
-import { useLabelAnalysisWorkers } from "./useLabelAnalysisWorkers";
+import { computeFieldMatches, computeAssessmentScore, TYPE_FIELD_CONFIG, EXTRA_FIELD_DB_COLUMNS, UNITS_WITH_FL_OZ_REMAINDER, type ImageAnalysis } from "@/lib/domain/labelAnalysis";
+import { useLabelAnalysisWorkers } from "@/lib/domain/useLabelAnalysisWorkers";
+import { TYPE_DESIGNATIONS, ALCOHOL_UNITS, NET_CONTENTS_UNITS } from "@/lib/constants/units";
 
 // fallback (main-thread) path only checks a single orientation, so cap its
 // rect count to match the per-orientation cap used by the OpenCV worker
 const MAX_OCR_RECTS = 4;
 
-const TYPE_DESIGNATIONS = ["Malt Beverage", "Wine", "Distilled Spirits"];
-
-const ALCOHOL_UNITS = ["Alc./Vol.", "Alc./Wt."];
-
-const NET_CONTENTS_UNITS = ["Fl. Oz", "Pint", "Quart", "Gallon", "mL", "L"];
 const FL_OZ_PER_ML = 1 / 29.5735;
 const FL_OZ_PER_UNIT: Record<string, number> = { "Fl. Oz": 1, Pint: 16, Quart: 32, Gallon: 128, mL: FL_OZ_PER_ML, L: FL_OZ_PER_ML * 1000 };
 
@@ -346,7 +342,6 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
       const res = await fetch("/api/submissions", { method: "POST", body: formData });
       if (!res.ok) throw new Error(`Request failed: ${res.status}`);
       const saved = await res.json();
-      console.log("Submitted:", saved);
       onSubmit?.(saved);
       clear();
     } catch (err) {
@@ -376,7 +371,6 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
   // main-thread fallback), parse the results, and update form state
   const runOCRFromOrientations = async (orientations: Array<{ angle: number; rects: any[]; buffer: ArrayBuffer; sourceImage?: number }>) => {
     const parsed = await runOCRFromOrientationsBase(orientations);
-    console.log('Parsed fields:', parsed);
     setParsedFields(parsed || {});
     setOcrRaw(parsed?.raw || '');
     try { if (annotRef.current && typeof annotRef.current.clearBoxes === 'function') annotRef.current.clearBoxes(); } catch (e) {}
@@ -420,7 +414,7 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
         ctx.drawImage(img, 0, 0, w, h);
         const imgData = ctx.getImageData(0, 0, w, h);
 
-        const { loadOpenCV } = await import('./opencvLoader');
+        const { loadOpenCV } = await import('@/lib/domain/opencvLoader');
         const cv = await loadOpenCV();
         const src = cv.matFromImageData(imgData);
         const gray = new cv.Mat();
@@ -449,7 +443,6 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
         src.delete(); gray.delete(); blur.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
         const canvasBlob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/png'));
         // do not replace preview with annotated canvas; keep original preview image
-        console.log('OpenCV fallback rects:', rects);
         if (rects && rects.length > 0 && canvasBlob) {
           try {
             const rectsToOCR = [...rects].sort((a, b) => (b.area || 0) - (a.area || 0)).slice(0, MAX_OCR_RECTS);
@@ -1146,9 +1139,6 @@ export default function UploadForm({ onSubmit, initialData, viewOnly }: { onSubm
               type="button"
               onClick={(e) => {
                 e.preventDefault();
-                if (step === 0) {
-                  console.log('View 1 input fields:', { brand, typeDesignation, alcoholContent, netContents, producer, isImported, country, ...getActiveExtraInputs() });
-                }
                 if (step === 1) {
                   if (viewOnly) setStep(2);
                   else runAllChecks();

@@ -26,7 +26,6 @@ export type FieldMatches = Record<string, boolean | 'no-input'>;
 // shown behind a checkbox in UploadForm (and, for CSV-driven batch rows,
 // treated as active whenever the corresponding column has a value).
 export const TYPE_FIELD_CONFIG: Record<string, { required: string[]; applicable: string[] }> = {
-  Beer: { required: [], applicable: ['colorDisclosure', 'sulfiteAspartame'] },
   'Malt Beverage': { required: [], applicable: ['colorDisclosure', 'sulfiteAspartame'] },
   'Distilled Spirits': { required: ['ageStatement'], applicable: ['colorDisclosure', 'commodityStatement'] },
   Wine: { required: [], applicable: ['sulfiteDeclaration', 'colorDisclosure', 'appellationOfOrigin', 'percentageForeignWine'] },

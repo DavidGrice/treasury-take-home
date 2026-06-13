@@ -2,8 +2,10 @@
 import React, { useState } from "react";
 import Button from "./Button";
 import SecondaryButton from "./SecondaryButton";
-import { BASE_FIELDS, IMAGE_QUALITY_FIELDS, applicableExtraFields, fieldValue } from "./submissionFields";
+import { BASE_FIELDS, IMAGE_QUALITY_FIELDS, applicableExtraFields, fieldValue, getImageUrls } from "@/lib/domain/submissionFields";
 import SectionTitle from "./SectionTitle";
+import FieldRow from "./FieldRow";
+import { SUBMISSION_STATUSES } from "@/lib/constants/statuses";
 
 export default function GovReviewModal({
   submission,
@@ -20,14 +22,12 @@ export default function GovReviewModal({
   const [submitting, setSubmitting] = useState(false);
   const [expandedSrc, setExpandedSrc] = useState<string | null>(null);
 
-  const imageUrls: string[] = Array.isArray(submission.image_urls) && submission.image_urls.length > 0
-    ? submission.image_urls
-    : (submission.image_url ? [submission.image_url] : []);
+  const imageUrls = getImageUrls(submission);
 
   const allFields = [...BASE_FIELDS, ...applicableExtraFields(submission)];
   const rejectionFields = [...allFields, ...IMAGE_QUALITY_FIELDS];
 
-  const updateStatus = async (status: "Approved" | "Rejected", extra?: any) => {
+  const updateStatus = async (status: typeof SUBMISSION_STATUSES.APPROVED | typeof SUBMISSION_STATUSES.REJECTED, extra?: any) => {
     setSubmitting(true);
     try {
       const res = await fetch(`/api/submissions/${submission.id}`, {
@@ -49,7 +49,7 @@ export default function GovReviewModal({
 
   const handleConfirmReject = () => {
     const rejectionReasons = rejectionFields.filter((f) => reasons[f.key]).map((f) => f.label);
-    updateStatus("Rejected", { rejectionReasons, rejectionComment: comment });
+    updateStatus(SUBMISSION_STATUSES.REJECTED, { rejectionReasons, rejectionComment: comment });
   };
 
   if (showReject) {
@@ -116,10 +116,7 @@ export default function GovReviewModal({
         <div style={{ flex: "1 1 280px" }}>
           <div className="fields-area">
             {allFields.map((f) => (
-              <div className="field-row" key={f.key}>
-                <label className="field-label">{f.label}</label>
-                <div className="field-input" style={{ background: "#f9f9f9" }}>{fieldValue(submission, f.key) || "—"}</div>
-              </div>
+              <FieldRow key={f.key} label={f.label} value={fieldValue(submission, f.key)} />
             ))}
           </div>
         </div>
@@ -160,7 +157,7 @@ export default function GovReviewModal({
       )}
 
       <div style={{ display: "flex", justifyContent: "center", gap: 16, marginTop: 20 }}>
-        <Button onClick={() => updateStatus("Approved")} disabled={submitting} style={{ background: "#16a34a", border: "none" }}>
+        <Button onClick={() => updateStatus(SUBMISSION_STATUSES.APPROVED)} disabled={submitting} style={{ background: "#16a34a", border: "none" }}>
           Approve
         </Button>
         <Button onClick={() => setShowReject(true)} disabled={submitting} style={{ background: "#ef4444", color: "white", border: "none" }}>

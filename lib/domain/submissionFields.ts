@@ -63,3 +63,28 @@ export const fieldValue = (submission: any, key: string) => {
   if (key === "country") return submission.is_imported === "Yes" ? submission.country || "" : "N/A (domestic)";
   return submission[key] || "";
 };
+
+// a submission may have multiple photos (image_urls) or a single legacy
+// photo (image_url) - normalize to an array for display
+export const getImageUrls = (submission: any): string[] =>
+  Array.isArray(submission.image_urls) && submission.image_urls.length > 0
+    ? submission.image_urls
+    : (submission.image_url ? [submission.image_url] : []);
+
+export const scoreLabel = (f: any) =>
+  f.assessment_score === null || f.assessment_score === undefined ? "N/A" : `${f.assessment_score}%`;
+
+// populates the ID/Brand/Score/Date column filter dropdowns with only the
+// values present within the currently selected status tab
+export const deriveFilterOptions = (forms: any[]) => {
+  const idOptions = Array.from(new Set(forms.map((f) => String(f.id)))).sort();
+  const brandOptions = Array.from(new Set(forms.map((f) => f.brand || "(no brand)"))).sort();
+  const scoreOptions = Array.from(new Set(forms.map(scoreLabel))).sort((a, b) => {
+    if (a === "N/A") return 1;
+    if (b === "N/A") return -1;
+    return parseInt(b) - parseInt(a);
+  });
+  const dateOptions = Array.from(new Set(forms.map((f) => new Date(f.submitted_at).toLocaleDateString())))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  return { idOptions, brandOptions, scoreOptions, dateOptions };
+};

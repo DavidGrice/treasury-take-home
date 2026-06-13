@@ -1,5 +1,25 @@
+import { useState } from "react";
+
 export type SortKey = "id" | "brand" | "status" | "assessment_score" | "submitted_at" | "assigned_to";
 export type SortDir = "asc" | "desc";
+
+// shared sort-column-header state: clicking the active column flips its
+// direction, clicking a new column switches to it ascending
+export function useSortableTable(initialKey: SortKey, initialDir: SortDir = "asc") {
+  const [sortKey, setSortKey] = useState<SortKey>(initialKey);
+  const [sortDir, setSortDir] = useState<SortDir>(initialDir);
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  return { sortKey, sortDir, handleSort };
+}
 
 export function sortSubmissions(forms: any[], key: SortKey, dir: SortDir) {
   const sign = dir === "asc" ? 1 : -1;

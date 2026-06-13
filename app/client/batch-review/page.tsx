@@ -8,7 +8,8 @@ import Button from "../../../components/ui/Button";
 import Spinner from "../../../components/ui/Spinner";
 import Modal from "../../../components/ui/Modal";
 import BatchCorrectionForm from "../../../components/ui/BatchCorrectionForm";
-import { useLabelAnalysisWorkers } from "../../../components/ui/useLabelAnalysisWorkers";
+import MessageBox from "../../../components/ui/MessageBox";
+import { useLabelAnalysisWorkers } from "@/lib/domain/useLabelAnalysisWorkers";
 import {
   computeFieldMatches,
   computeAssessmentScore,
@@ -16,8 +17,8 @@ import {
   BLUR_VARIANCE_THRESHOLD,
   GOVERNMENT_WARNING_RE,
   SURGEON_GENERAL_RE,
-} from "../../../components/ui/labelAnalysis";
-import { BATCH_STATUSES, STALE_CLAIM_MS } from "../../../components/ui/batchStatus";
+} from "@/lib/domain/labelAnalysis";
+import { BATCH_STATUSES, STALE_CLAIM_MS, SUBMISSION_STATUSES } from "@/lib/constants/statuses";
 
 const PASSING_SCORE = 70;
 
@@ -80,7 +81,7 @@ function BatchReviewContent() {
     processing: rows.filter((r) => r.status === BATCH_STATUSES.PROCESSING).length,
     ready: rows.filter((r) => r.status === BATCH_STATUSES.READY).length,
     needsReview: rows.filter((r) => r.status === BATCH_STATUSES.NEEDS_REVIEW).length,
-    submitted: rows.filter((r) => r.status === "Submitted").length,
+    submitted: rows.filter((r) => r.status === SUBMISSION_STATUSES.SUBMITTED).length,
   };
 
   const retryableCount = rows.filter((r) => r.status === BATCH_STATUSES.QUEUED || isStaleClaim(r)).length;
@@ -115,7 +116,7 @@ function BatchReviewContent() {
     const ocrConfidence = typeof parsed.confidence === "number" ? parsed.confidence : null;
 
     const passed = score !== null && score >= PASSING_SCORE && !blurry && !flash;
-    const finalStatus = passed ? "Submitted" : BATCH_STATUSES.NEEDS_REVIEW;
+    const finalStatus = passed ? SUBMISSION_STATUSES.SUBMITTED : BATCH_STATUSES.NEEDS_REVIEW;
 
     await fetch(`/api/submissions/${row.id}`, {
       method: "PATCH",
@@ -224,9 +225,9 @@ function BatchReviewContent() {
               </div>
 
               {error && (
-                <div style={{ marginTop: 16, padding: 12, background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 6, color: "#991b1b" }}>
+                <MessageBox variant="error" style={{ marginTop: 16, color: "#991b1b" }}>
                   {error}
-                </div>
+                </MessageBox>
               )}
 
               <div style={{ maxHeight: 320, overflowY: "auto", marginTop: 16 }}>

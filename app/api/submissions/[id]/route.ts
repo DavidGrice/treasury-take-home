@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { ensureTable, ensureHistoryTables, SUBMISSION_WITH_ASSESSMENT_SELECT, APPROVED_TABLE, REJECTED_TABLE, generateCertificateNumber } from "../db";
-import { BATCH_STATUSES, STALE_CLAIM_MS } from "../../../../components/ui/batchStatus";
+import { BATCH_STATUSES, STALE_CLAIM_MS, SUBMISSION_STATUSES } from "@/lib/constants/statuses";
 
 const BATCH_INPLACE_STATUSES: string[] = [
-  BATCH_STATUSES.PROCESSING, BATCH_STATUSES.READY, BATCH_STATUSES.NEEDS_REVIEW, "Submitted",
+  BATCH_STATUSES.PROCESSING, BATCH_STATUSES.READY, BATCH_STATUSES.NEEDS_REVIEW, SUBMISSION_STATUSES.SUBMITTED,
 ];
 
 // columns the "Batch Needs Review" correction form is allowed to update -
@@ -34,7 +34,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return handleBatchStatusUpdate(id, status, body);
   }
 
-  if (!["Approved", "Rejected"].includes(status)) {
+  if (![SUBMISSION_STATUSES.APPROVED, SUBMISSION_STATUSES.REJECTED].includes(status as any)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
@@ -44,8 +44,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   const row = rows[0];
 
-  const rejectionReasons = status === "Rejected" ? JSON.stringify(body.rejectionReasons || []) : null;
-  const rejectionComment = status === "Rejected" ? String(body.rejectionComment || "") : null;
+  const rejectionReasons = status === SUBMISSION_STATUSES.REJECTED ? JSON.stringify(body.rejectionReasons || []) : null;
+  const rejectionComment = status === SUBMISSION_STATUSES.REJECTED ? String(body.rejectionComment || "") : null;
   const fieldMatches = row.assessment_field_matches === null || row.assessment_field_matches === undefined
     ? null
     : JSON.stringify(row.assessment_field_matches);
@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     ? null
     : JSON.stringify(row.image_urls);
 
-  const targetTable = status === "Approved" ? APPROVED_TABLE : REJECTED_TABLE;
+  const targetTable = status === SUBMISSION_STATUSES.APPROVED ? APPROVED_TABLE : REJECTED_TABLE;
 
   // the assigned reviewer signs off on the decision and is stamped with an
   // official-looking certificate number for traceability
@@ -138,7 +138,7 @@ async function handleBatchStatusUpdate(id: string, status: string, body: any) {
         ocr_raw = ${a.ocrRaw ?? null}
       WHERE submission_id = ${id}
     `;
-  } else if (status === "Submitted") {
+  } else if (status === SUBMISSION_STATUSES.SUBMITTED) {
     // resubmit from "Batch Needs Review": optionally apply corrected field
     // values + recomputed assessment alongside the status change
     const fields = body.fields || {};
@@ -174,7 +174,7 @@ async function handleBatchStatusUpdate(id: string, status: string, body: any) {
       `;
     }
 
-    await sql`UPDATE submissions SET status = 'Submitted' WHERE id = ${id}`;
+    await sql`UPDATE submissions SET status = ${SUBMISSION_STATUSES.SUBMITTED} WHERE id = ${id}`;
   }
 
   const { rows } = await sql.query(`${SUBMISSION_WITH_ASSESSMENT_SELECT} WHERE s.id = $1`, [id]);

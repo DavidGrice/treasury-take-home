@@ -14,7 +14,6 @@ export type ChecklistItem = {
 export const CHECKLIST_DATA: Record<string, ChecklistItem[]> = {
   Wine: wineChecklist,
   'Malt Beverage': maltBeverageChecklist,
-  Beer: maltBeverageChecklist,
   'Distilled Spirits': distilledSpiritsChecklist,
 };
 
@@ -55,7 +54,6 @@ export const CHECKLIST_FIELD_MAP: Record<string, Record<string, string[]>> = {
     commodityStatement: ['Commodity Statements (Presence of Neutral Spirits / Commodity of Distillation)', 'State of Distillation'],
   },
 };
-CHECKLIST_FIELD_MAP.Beer = CHECKLIST_FIELD_MAP['Malt Beverage'];
 
 export const getChecklistItems = (typeDesignation: string, fieldKey: string): ChecklistItem[] => {
   const data = CHECKLIST_DATA[typeDesignation];

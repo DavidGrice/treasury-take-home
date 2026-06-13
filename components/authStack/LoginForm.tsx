@@ -15,7 +15,6 @@ export default function LoginForm({ onSuccess }: Props) {
     setLoading(true);
     // Simulate async auth call — replace with real API call
     await new Promise((r) => setTimeout(r, 600));
-    console.log("login attempt", { email, password });
     setLoading(false);
     onSuccess?.(email);
   };

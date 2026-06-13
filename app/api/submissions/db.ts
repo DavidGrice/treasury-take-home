@@ -1,5 +1,5 @@
 import { sql } from "@vercel/postgres";
-import { EMPLOYEES } from "../../../components/ui/employees";
+import { EMPLOYEES } from "@/lib/data/employees";
 
 // extra Class/Type-specific label fields (see UploadForm.tsx TYPE_FIELD_CONFIG)
 const EXTRA_FIELD_COLUMNS = [

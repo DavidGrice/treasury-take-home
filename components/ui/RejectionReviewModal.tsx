@@ -1,15 +1,14 @@
 "use client";
 import React from "react";
-import { BASE_FIELDS, DB_TO_CHECKLIST_KEY, IMAGE_QUALITY_FIELDS, applicableExtraFields, fieldValue } from "./submissionFields";
-import { getChecklistItems } from "./checklistData";
+import { BASE_FIELDS, DB_TO_CHECKLIST_KEY, IMAGE_QUALITY_FIELDS, applicableExtraFields, fieldValue, getImageUrls } from "@/lib/domain/submissionFields";
+import { getChecklistItems } from "@/lib/data/checklistData";
 import SectionTitle from "./SectionTitle";
-import { getEmployeeName } from "./employees";
+import MessageBox from "./MessageBox";
+import CertificateBlock from "./CertificateBlock";
 
 export default function RejectionReviewModal({ submission }: { submission: any }) {
   const rejectedLabels: string[] = Array.isArray(submission.rejection_reasons) ? submission.rejection_reasons : [];
-  const imageUrls: string[] = Array.isArray(submission.image_urls) && submission.image_urls.length > 0
-    ? submission.image_urls
-    : (submission.image_url ? [submission.image_url] : []);
+  const imageUrls = getImageUrls(submission);
   const allFields = [...BASE_FIELDS, ...applicableExtraFields(submission)];
   const rejectedImageQualityFields = IMAGE_QUALITY_FIELDS.filter((f) => rejectedLabels.includes(f.label));
 
@@ -31,7 +30,7 @@ export default function RejectionReviewModal({ submission }: { submission: any }
                     </label>
                     <div className="field-input" style={{ background: "#f9f9f9" }}>{fieldValue(submission, f.key) || "—"}</div>
                     {isRejected && items.length > 0 && (
-                      <div style={{ fontSize: 12, color: "#555", padding: 8, background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 6 }}>
+                      <MessageBox variant="error" style={{ padding: 8, fontSize: 12, color: "#555" }}>
                         {items.map((item) => (
                           <div key={item.mandatory_item_name} style={{ marginBottom: 4 }}>
                             <strong>{item.regulatory_citation}:</strong> {item.description}
@@ -42,7 +41,7 @@ export default function RejectionReviewModal({ submission }: { submission: any }
                             </div>
                           </div>
                         ))}
-                      </div>
+                      </MessageBox>
                     )}
                   </div>
                 );
@@ -68,7 +67,7 @@ export default function RejectionReviewModal({ submission }: { submission: any }
         </div>
 
         {rejectedImageQualityFields.length > 0 && (
-          <div style={{ marginTop: 16, padding: 12, background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 6 }}>
+          <MessageBox variant="error" style={{ marginTop: 16 }}>
             <strong>Image quality issues:</strong>
             <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
               {rejectedImageQualityFields.map((f) => (
@@ -78,35 +77,17 @@ export default function RejectionReviewModal({ submission }: { submission: any }
                 </div>
               ))}
             </div>
-          </div>
+          </MessageBox>
         )}
 
         {submission.rejection_comment && (
-          <div style={{ marginTop: 16, padding: 12, background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 6 }}>
+          <MessageBox variant="error" style={{ marginTop: 16 }}>
             <strong>Reviewer comments:</strong>
             <p style={{ margin: "6px 0 0" }}>{submission.rejection_comment}</p>
-          </div>
+          </MessageBox>
         )}
 
-        <div style={{ marginTop: 16, padding: 16, border: "1px solid #d1d5db", borderRadius: 6, background: "#f9fafb" }}>
-          <p style={{ margin: "0 0 10px", fontWeight: 700, color: "#374151", textTransform: "uppercase", fontSize: 12, letterSpacing: "0.05em" }}>
-            Certificate of Authenticity
-          </p>
-          <div className="fields-area">
-            <div className="field-row">
-              <label className="field-label">Certified By</label>
-              <div className="field-input" style={{ background: "#fff" }}>{getEmployeeName(submission.decided_by)}</div>
-            </div>
-            <div className="field-row">
-              <label className="field-label">Employee ID</label>
-              <div className="field-input" style={{ background: "#fff" }}>{submission.decided_by || "—"}</div>
-            </div>
-            <div className="field-row">
-              <label className="field-label">Certificate No.</label>
-              <div className="field-input" style={{ background: "#fff", fontFamily: "monospace" }}>{submission.certificate_number || "—"}</div>
-            </div>
-          </div>
-        </div>
+        <CertificateBlock submission={submission} />
       </div>
     </div>
   );

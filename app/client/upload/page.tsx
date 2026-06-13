@@ -13,7 +13,6 @@ export default function ClientUploadPage() {
     setSubmitting(true);
     // TODO: replace with API upload
     await new Promise((r) => setTimeout(r, 700));
-    console.log("upload", { name, file });
     setSubmitting(false);
     alert("Submitted (placeholder)");
   };

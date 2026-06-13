@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-import type { SortDir, SortKey } from "./sortSubmissions";
+import type { SortDir, SortKey } from "@/lib/domain/sortSubmissions";
 
 type Props = {
   label: string;

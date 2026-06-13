@@ -1,3 +1,5 @@
+import { TYPE_DESIGNATIONS } from "@/lib/constants/units";
+
 // Reference data describing the Bulk Upload CSV/photo format - shown to
 // users via a "Format guide" modal on the Bulk Upload page (not exposed as a
 // raw downloadable file, since most non-technical users won't know what to
@@ -25,7 +27,7 @@ export const BULK_UPLOAD_FORMAT_SPEC: { csvColumns: FormatColumn[]; photos: { ac
     {
       name: "type_designation",
       required: true,
-      allowedValues: ["Beer", "Malt Beverage", "Distilled Spirits", "Wine"],
+      allowedValues: TYPE_DESIGNATIONS,
       description: "Determines which extra fields below apply.",
     },
     {
@@ -81,13 +83,13 @@ export const BULK_UPLOAD_FORMAT_SPEC: { csvColumns: FormatColumn[]; photos: { ac
     {
       name: "color_disclosure",
       required: false,
-      appliesTo: ["Beer", "Malt Beverage", "Distilled Spirits", "Wine"],
+      appliesTo: TYPE_DESIGNATIONS,
       description: "Color additive / ingredient disclosure.",
     },
     {
       name: "sulfite_aspartame",
       required: false,
-      appliesTo: ["Beer", "Malt Beverage"],
+      appliesTo: ["Malt Beverage"],
       description: "Sulfite and aspartame declarations.",
     },
     {
@@ -125,7 +127,7 @@ export const BULK_UPLOAD_FORMAT_SPEC: { csvColumns: FormatColumn[]; photos: { ac
 export const EXAMPLE_ROW: Record<string, string> = {
   image: "example-label.jpg",
   brand: "Example Brand",
-  type_designation: "Beer",
+  type_designation: "Malt Beverage",
   alcohol_content: "5.0",
   alcohol_unit: "Alc./Vol.",
   net_contents: "12",

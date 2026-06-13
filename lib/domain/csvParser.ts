@@ -1,3 +1,5 @@
+import { TYPE_DESIGNATIONS, ALCOHOL_UNITS, NET_CONTENTS_UNITS } from "@/lib/constants/units";
+
 // hand-rolled RFC4180-subset CSV parser (no npm dependency): comma-separated,
 // double-quote wrapped fields supporting embedded commas/newlines/escaped
 // quotes (""), CRLF or LF line endings, and a leading BOM.
@@ -54,10 +56,6 @@ export function parseCSV(text: string): { headers: string[]; rows: Record<string
 
   return { headers, rows };
 }
-
-const TYPE_DESIGNATIONS = ["Beer", "Malt Beverage", "Wine", "Distilled Spirits"];
-const ALCOHOL_UNITS = ["Alc./Vol.", "Alc./Wt."];
-const NET_CONTENTS_UNITS = ["Fl. Oz", "Pint", "Quart", "Gallon", "mL", "L"];
 
 // columns that are mapped straight through to `submissions` table columns
 // of the same name

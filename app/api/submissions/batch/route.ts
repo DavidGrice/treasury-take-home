@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { ensureTable, SUBMISSION_WITH_ASSESSMENT_SELECT, generateSubmissionId, assignReviewer } from "../db";
 import { uploadImages } from "../storage";
-import { BATCH_STATUSES } from "../../../../components/ui/batchStatus";
+import { BATCH_STATUSES, SUBMISSION_STATUSES } from "@/lib/constants/statuses";
 
 // columns mapped 1:1 from CSV via mapCsvRowToSubmissionFields
 const ROW_FIELDS = [
@@ -111,7 +111,7 @@ export async function PATCH(request: NextRequest) {
   const ids: string[] = Array.isArray(body.ids) ? body.ids.map(String) : [];
   const status = String(body.status || "");
 
-  if (status !== "Submitted" || ids.length === 0) {
+  if (status !== SUBMISSION_STATUSES.SUBMITTED || ids.length === 0) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
