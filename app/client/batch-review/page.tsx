@@ -172,11 +172,6 @@ function BatchReviewContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ width: "100%", maxWidth: 1200, display: "flex", justifyContent: "flex-start", marginBottom: 12 }}>
-        <Button variant="secondary" onClick={() => router.push(batchId ? "/client/batch-review" : "/client/dashboard")}>
-          ← Back
-        </Button>
-      </div>
       <DashboardBox>
         <div style={{ maxWidth: 760, margin: "0 auto" }}>
           <SectionTitle>Batch Review</SectionTitle>

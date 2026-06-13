@@ -6,7 +6,8 @@ import { useRouter, usePathname } from "next/navigation";
 export type SidebarNavItem = {
   key: string;
   label: string;
-  href: string;
+  href?: string; // omit for action items that don't navigate (use onClick instead)
+  onClick?: () => void;
   highlight?: boolean; // false = action item, never shown as "active" (default true)
 };
 
@@ -19,13 +20,16 @@ export default function SidebarNav({ items, disabled = false }: { items: Sidebar
   return (
     <div style={{ width: 200, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="dashboard-box" style={{ padding: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "#000", textAlign: "center", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Navigation
+        </div>
         {items.map((item) => {
-          const path = item.href.split("?")[0];
-          const active = item.highlight !== false && pathname === path;
+          const path = item.href ? item.href.split("?")[0] : null;
+          const active = item.highlight !== false && path !== null && pathname === path;
           return (
             <button
               key={item.key}
-              onClick={() => router.push(item.href)}
+              onClick={() => (item.onClick ? item.onClick() : router.push(item.href!))}
               disabled={disabled}
               className={`dashboard-filter${active ? " dashboard-filter--active" : ""}`}
               style={{

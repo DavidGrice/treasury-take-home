@@ -461,9 +461,11 @@ body {
   align-items: center;
   justify-content: center;
   gap: 12px;
+  min-height: 400px;
   padding: 60px 20px;
   color: #64748b;
   font-size: 14px;
+  box-sizing: border-box;
 }
 
 .spinner {

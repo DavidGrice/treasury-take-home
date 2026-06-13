@@ -216,11 +216,6 @@ export default function BulkUploadPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ width: "100%", maxWidth: 1200, display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <Button variant="secondary" onClick={() => router.push("/client/dashboard")}>
-          ← Back to Dashboard
-        </Button>
-      </div>
       <DashboardBox>
         <div style={{ maxWidth: 760, margin: "0 auto" }}>
           <SectionTitle>Bulk Upload</SectionTitle>

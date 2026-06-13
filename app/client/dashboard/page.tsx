@@ -1,7 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import DashboardBox from "../../../components/ui/DashboardBox";
 import UploadForm from "@/components/clientStack/home/UploadForm";
 import Button from "../../../components/ui/Button";
@@ -16,14 +15,12 @@ import { sortSubmissions, useSortableTable } from "@/lib/domain/sortSubmissions"
 import { deriveFilterOptions, scoreLabel } from "@/lib/domain/submissionFields";
 import { useSubmissions } from "@/lib/hooks/useSubmissions";
 import { useSetNavLoading } from "@/lib/context/NavLoadingContext";
+import { useNewFormModal } from "@/lib/context/NewFormModalContext";
 import { SUBMISSION_STATUSES, reviewButtonStyle, type SubmissionStatus } from "@/lib/constants/statuses";
 
 type StatusFilter = "All" | SubmissionStatus;
 
 function ClientDashboardContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [showUpload, setShowUpload] = useState(false);
   const { forms, setForms, loading } = useSubmissions();
   useSetNavLoading(loading);
   const [viewing, setViewing] = useState<any | null>(null);
@@ -35,13 +32,17 @@ function ClientDashboardContent() {
   const [dateFilter, setDateFilter] = useState("All");
   const { sortKey, sortDir, handleSort } = useSortableTable("submitted_at", "desc");
 
-  // sidebar's "New Form" link opens the upload modal via ?new=1 from any page
+  // "New Form" opens a layout-level modal (works from any /client/* page);
+  // when a submission completes while this page is mounted, splice it into
+  // the table without refetching
+  const { lastSubmitted } = useNewFormModal();
+  const lastSeenRef = useRef(lastSubmitted);
   useEffect(() => {
-    if (searchParams.get("new") === "1") {
-      setShowUpload(true);
-      router.replace("/client/dashboard");
+    if (lastSubmitted && lastSubmitted !== lastSeenRef.current) {
+      lastSeenRef.current = lastSubmitted;
+      setForms((s) => [lastSubmitted.data, ...s]);
     }
-  }, [searchParams, router]);
+  }, [lastSubmitted, setForms]);
 
   const totalCount = forms.length;
   const submittedCount = forms.filter((f) => f.status === SUBMISSION_STATUSES.SUBMITTED).length;
@@ -60,11 +61,6 @@ function ClientDashboardContent() {
   const { idOptions, brandOptions, scoreOptions, dateOptions: submittedDates } = deriveFilterOptions(statusFilteredForms);
 
   const sortedForms = sortSubmissions(visibleForms, sortKey, sortDir);
-
-  const handleFormSubmit = (data: any) => {
-    setForms((s) => [data, ...s]);
-    setShowUpload(false);
-  };
 
   // switching the status tab can invalidate the currently selected column
   // filters (e.g. an ID that only exists under "Accepted"), so reset them
@@ -195,12 +191,6 @@ function ClientDashboardContent() {
               View All ({sortedForms.length})
             </Button>
           </div>
-
-          {showUpload && (
-            <Modal onClose={() => setShowUpload(false)}>
-              <UploadForm onSubmit={handleFormSubmit} />
-            </Modal>
-          )}
 
           {viewing && (
             <Modal onClose={() => setViewing(null)}>
