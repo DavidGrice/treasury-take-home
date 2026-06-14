@@ -11,6 +11,7 @@ import SubmissionViewQueue from "../../../components/ui/SubmissionViewQueue";
 import FilterStat from "../../../components/ui/FilterStat";
 import Spinner from "../../../components/ui/Spinner";
 import SortableTh from "../../../components/ui/SortableTh";
+import SearchableSelect from "../../../components/ui/SearchableSelect";
 import { sortSubmissions, useSortableTable } from "@/lib/domain/sortSubmissions";
 import { deriveFilterOptions, scoreLabel } from "@/lib/domain/submissionFields";
 import { useSubmissions } from "@/lib/hooks/useSubmissions";
@@ -28,6 +29,7 @@ function ClientDashboardContent() {
   const [filter, setFilter] = useState<StatusFilter>("All");
   const [idFilter, setIdFilter] = useState("All");
   const [brandFilter, setBrandFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [scoreFilter, setScoreFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("All");
   const { sortKey, sortDir, handleSort } = useSortableTable("submitted_at", "desc");
@@ -52,13 +54,29 @@ function ClientDashboardContent() {
   // forms are already ordered newest-first by ALL_SUBMISSIONS_QUERY
   const statusFilteredForms = filter === "All" ? forms : forms.filter((f) => f.status === filter);
 
-  const visibleForms = statusFilteredForms
-    .filter((f) => idFilter === "All" || String(f.id) === idFilter)
-    .filter((f) => brandFilter === "All" || (f.brand || "(no brand)") === brandFilter)
-    .filter((f) => scoreFilter === "All" || scoreLabel(f) === scoreFilter)
-    .filter((f) => dateFilter === "All" || new Date(f.submitted_at).toLocaleDateString() === dateFilter);
+  // each column filter's predicate, keyed so we can exclude a column's own
+  // filter when computing that column's available options below
+  const columnMatchers: Record<string, (f: any) => boolean> = {
+    id: (f) => idFilter === "All" || String(f.id) === idFilter,
+    brand: (f) => brandFilter === "All" || (f.brand || "(no brand)") === brandFilter,
+    status: (f) => statusFilter === "All" || f.status === statusFilter,
+    score: (f) => scoreFilter === "All" || scoreLabel(f) === scoreFilter,
+    date: (f) => dateFilter === "All" || new Date(f.submitted_at).toLocaleDateString() === dateFilter,
+  };
+  const columnKeys = Object.keys(columnMatchers);
 
-  const { idOptions, brandOptions, scoreOptions, dateOptions: submittedDates } = deriveFilterOptions(statusFilteredForms);
+  const visibleForms = statusFilteredForms.filter((f) => columnKeys.every((k) => columnMatchers[k](f)));
+
+  // a column's dropdown should only offer values that actually occur given
+  // the *other* active filters, so it stays in sync with what's on screen
+  const optionsBasis = (exclude: string) =>
+    statusFilteredForms.filter((f) => columnKeys.every((k) => k === exclude || columnMatchers[k](f)));
+
+  const { idOptions } = deriveFilterOptions(optionsBasis("id"));
+  const { brandOptions } = deriveFilterOptions(optionsBasis("brand"));
+  const { scoreOptions } = deriveFilterOptions(optionsBasis("score"));
+  const { dateOptions: submittedDates } = deriveFilterOptions(optionsBasis("date"));
+  const statusOptions = Array.from(new Set(optionsBasis("status").map((f) => f.status))).sort();
 
   const sortedForms = sortSubmissions(visibleForms, sortKey, sortDir);
 
@@ -68,6 +86,7 @@ function ClientDashboardContent() {
     setFilter(next);
     setIdFilter("All");
     setBrandFilter("All");
+    setStatusFilter("All");
     setScoreFilter("All");
     setDateFilter("All");
   };
@@ -101,57 +120,46 @@ function ClientDashboardContent() {
               </tr>
               <tr style={{ borderBottom: '1px solid #eee' }}>
                 <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                  <select
+                  <SearchableSelect
                     className="input"
-                    style={{ width: '100%', boxSizing: 'border-box' }}
+                    options={["All", ...idOptions]}
                     value={idFilter}
-                    onChange={(e) => setIdFilter(e.target.value)}
-                  >
-                    <option value="All">All</option>
-                    {idOptions.map((id) => (
-                      <option key={id} value={id}>{id}</option>
-                    ))}
-                  </select>
+                    onChange={setIdFilter}
+                  />
                 </th>
                 <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                  <select
+                  <SearchableSelect
                     className="input"
-                    style={{ width: '100%', boxSizing: 'border-box' }}
+                    options={["All", ...brandOptions]}
                     value={brandFilter}
-                    onChange={(e) => setBrandFilter(e.target.value)}
-                  >
-                    <option value="All">All</option>
-                    {brandOptions.map((b) => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                  </select>
+                    onChange={setBrandFilter}
+                  />
                 </th>
-                <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
                 <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                  <select
+                  {filter === "All" && (
+                    <SearchableSelect
+                      className="input"
+                      options={["All", ...statusOptions]}
+                      value={statusFilter}
+                      onChange={setStatusFilter}
+                    />
+                  )}
+                </th>
+                <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                  <SearchableSelect
                     className="input"
-                    style={{ width: '100%', boxSizing: 'border-box' }}
+                    options={["All", ...scoreOptions]}
                     value={scoreFilter}
-                    onChange={(e) => setScoreFilter(e.target.value)}
-                  >
-                    <option value="All">All</option>
-                    {scoreOptions.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
+                    onChange={setScoreFilter}
+                  />
                 </th>
                 <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                  <select
+                  <SearchableSelect
                     className="input"
-                    style={{ width: '100%', boxSizing: 'border-box' }}
+                    options={["All", ...submittedDates]}
                     value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                  >
-                    <option value="All">All</option>
-                    {submittedDates.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
+                    onChange={setDateFilter}
+                  />
                 </th>
                 <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
               </tr>

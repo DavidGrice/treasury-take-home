@@ -9,9 +9,10 @@ type SearchableSelectProps = {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  style?: React.CSSProperties;
 };
 
-export default function SearchableSelect({ options, value, onChange, placeholder, required, disabled, className }: SearchableSelectProps) {
+export default function SearchableSelect({ options, value, onChange, placeholder, required, disabled, className, style }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -32,9 +33,10 @@ export default function SearchableSelect({ options, value, onChange, placeholder
     : options;
 
   return (
-    <div ref={containerRef} style={{ position: "relative" }}>
+    <div ref={containerRef} style={{ position: "relative", ...style }}>
       <input
         className={className}
+        style={{ width: "100%", boxSizing: "border-box" }}
         value={open ? query : value}
         placeholder={placeholder}
         required={required}

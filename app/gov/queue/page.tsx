@@ -11,14 +11,15 @@ import AcceptedReviewModal from "../../../components/ui/AcceptedReviewModal";
 import FilterStat from "../../../components/ui/FilterStat";
 import Spinner from "../../../components/ui/Spinner";
 import SortableTh from "../../../components/ui/SortableTh";
+import SearchableSelect from "../../../components/ui/SearchableSelect";
 import { sortSubmissions, useSortableTable } from "@/lib/domain/sortSubmissions";
 import { deriveFilterOptions, scoreLabel } from "@/lib/domain/submissionFields";
-import { EMPLOYEES, getEmployeeName } from "@/lib/data/employees";
+import { getEmployeeName } from "@/lib/data/employees";
 import { useSubmissions } from "@/lib/hooks/useSubmissions";
 import { useSetNavLoading } from "@/lib/context/NavLoadingContext";
 import { SUBMISSION_STATUSES, reviewButtonStyle, type SubmissionStatus } from "@/lib/constants/statuses";
 
-type StatusFilter = SubmissionStatus;
+type StatusFilter = SubmissionStatus | "All";
 
 export default function GovQueuePage() {
   const { forms, setForms, loading } = useSubmissions();
@@ -30,6 +31,7 @@ export default function GovQueuePage() {
   const [assigneeFilter, setAssigneeFilter] = useState<string>("All");
   const [idFilter, setIdFilter] = useState("All");
   const [brandFilter, setBrandFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [scoreFilter, setScoreFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("All");
   // gov queue defaults to oldest-first by submitted date, but any column
@@ -42,20 +44,38 @@ export default function GovQueuePage() {
     setForms((s) => s.map((f) => (f.id === updated.id ? updated : f)));
   };
 
+  const totalCount = forms.length;
   const queueCount = forms.filter((f) => f.status === SUBMISSION_STATUSES.SUBMITTED).length;
   const approvedCount = forms.filter((f) => f.status === SUBMISSION_STATUSES.APPROVED).length;
   const rejectedCount = forms.filter((f) => f.status === SUBMISSION_STATUSES.REJECTED).length;
 
-  const statusFilteredForms = forms.filter((f) => f.status === filter);
+  const statusFilteredForms = filter === "All" ? forms : forms.filter((f) => f.status === filter);
 
-  const visibleForms = statusFilteredForms
-    .filter((f) => assigneeFilter === "All" || f.assigned_to === assigneeFilter)
-    .filter((f) => idFilter === "All" || String(f.id) === idFilter)
-    .filter((f) => brandFilter === "All" || (f.brand || "(no brand)") === brandFilter)
-    .filter((f) => scoreFilter === "All" || scoreLabel(f) === scoreFilter)
-    .filter((f) => dateFilter === "All" || new Date(f.submitted_at).toLocaleDateString() === dateFilter);
+  // each column filter's predicate, keyed so we can exclude a column's own
+  // filter when computing that column's available options below
+  const columnMatchers: Record<string, (f: any) => boolean> = {
+    id: (f) => idFilter === "All" || String(f.id) === idFilter,
+    brand: (f) => brandFilter === "All" || (f.brand || "(no brand)") === brandFilter,
+    status: (f) => statusFilter === "All" || f.status === statusFilter,
+    score: (f) => scoreFilter === "All" || scoreLabel(f) === scoreFilter,
+    date: (f) => dateFilter === "All" || new Date(f.submitted_at).toLocaleDateString() === dateFilter,
+    assignee: (f) => assigneeFilter === "All" || getEmployeeName(f.assigned_to) === assigneeFilter,
+  };
+  const columnKeys = Object.keys(columnMatchers);
 
-  const { idOptions, brandOptions, scoreOptions, dateOptions: submittedDates } = deriveFilterOptions(statusFilteredForms);
+  const visibleForms = statusFilteredForms.filter((f) => columnKeys.every((k) => columnMatchers[k](f)));
+
+  // a column's dropdown should only offer values that actually occur given
+  // the *other* active filters, so it stays in sync with what's on screen
+  const optionsBasis = (exclude: string) =>
+    statusFilteredForms.filter((f) => columnKeys.every((k) => k === exclude || columnMatchers[k](f)));
+
+  const { idOptions } = deriveFilterOptions(optionsBasis("id"));
+  const { brandOptions } = deriveFilterOptions(optionsBasis("brand"));
+  const { scoreOptions } = deriveFilterOptions(optionsBasis("score"));
+  const { dateOptions: submittedDates } = deriveFilterOptions(optionsBasis("date"));
+  const statusOptions = Array.from(new Set(optionsBasis("status").map((f) => f.status))).sort();
+  const assigneeOptions = Array.from(new Set(optionsBasis("assignee").map((f) => getEmployeeName(f.assigned_to)))).sort();
 
   const sortedForms = sortSubmissions(visibleForms, sortKey, sortDir);
 
@@ -71,14 +91,37 @@ export default function GovQueuePage() {
     setAssigneeFilter("All");
     setIdFilter("All");
     setBrandFilter("All");
+    setStatusFilter("All");
     setScoreFilter("All");
     setDateFilter("All");
+  };
+
+  // the ID filter narrows to a single (unique) row, so any other column
+  // filter is reset back to "All" - otherwise the table can end up showing
+  // zero rows because the selected ID doesn't match a leftover filter
+  const handleIdFilter = (value: string) => {
+    setIdFilter(value);
+    if (value !== "All") {
+      setAssigneeFilter("All");
+      setBrandFilter("All");
+      setStatusFilter("All");
+      setScoreFilter("All");
+      setDateFilter("All");
+    }
+  };
+
+  // conversely, picking any other column filter clears the ID filter, since
+  // a specific ID is unlikely to also match the newly chosen filter
+  const handleColumnFilter = (setter: (value: string) => void) => (value: string) => {
+    setter(value);
+    setIdFilter("All");
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <DashboardBox
         topItems={[
+          <FilterStat key="total" label="Total" count={totalCount} active={filter === "All"} onSelect={() => handleStatusFilter("All")} />,
           <FilterStat key="queue" label="In Queue" count={queueCount} active={filter === SUBMISSION_STATUSES.SUBMITTED} onSelect={() => handleStatusFilter(SUBMISSION_STATUSES.SUBMITTED)} />,
           <FilterStat key="accepted" label="Accepted" count={approvedCount} active={filter === SUBMISSION_STATUSES.APPROVED} onSelect={() => handleStatusFilter(SUBMISSION_STATUSES.APPROVED)} />,
           <FilterStat key="rejected" label="Rejected" count={rejectedCount} active={filter === SUBMISSION_STATUSES.REJECTED} onSelect={() => handleStatusFilter(SUBMISSION_STATUSES.REJECTED)} />,
@@ -102,70 +145,54 @@ export default function GovQueuePage() {
                 </tr>
                 <tr style={{ borderBottom: '1px solid #eee' }}>
                   <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                    <select
+                    <SearchableSelect
                       className="input"
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      options={["All", ...idOptions]}
                       value={idFilter}
-                      onChange={(e) => setIdFilter(e.target.value)}
-                    >
-                      <option value="All">All</option>
-                      {idOptions.map((id) => (
-                        <option key={id} value={id}>{id}</option>
-                      ))}
-                    </select>
+                      onChange={handleIdFilter}
+                    />
                   </th>
                   <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                    <select
+                    <SearchableSelect
                       className="input"
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      options={["All", ...brandOptions]}
                       value={brandFilter}
-                      onChange={(e) => setBrandFilter(e.target.value)}
-                    >
-                      <option value="All">All</option>
-                      {brandOptions.map((b) => (
-                        <option key={b} value={b}>{b}</option>
-                      ))}
-                    </select>
+                      onChange={handleColumnFilter(setBrandFilter)}
+                    />
                   </th>
-                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
                   <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                    <select
+                    {filter === "All" && (
+                      <SearchableSelect
+                        className="input"
+                        options={["All", ...statusOptions]}
+                        value={statusFilter}
+                        onChange={handleColumnFilter(setStatusFilter)}
+                      />
+                    )}
+                  </th>
+                  <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
+                    <SearchableSelect
                       className="input"
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      options={["All", ...scoreOptions]}
                       value={scoreFilter}
-                      onChange={(e) => setScoreFilter(e.target.value)}
-                    >
-                      <option value="All">All</option>
-                      {scoreOptions.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
+                      onChange={handleColumnFilter(setScoreFilter)}
+                    />
                   </th>
                   <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                    <select
+                    <SearchableSelect
                       className="input"
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      options={["All", ...submittedDates]}
                       value={dateFilter}
-                      onChange={(e) => setDateFilter(e.target.value)}
-                    >
-                      <option value="All">All</option>
-                      {submittedDates.map((d) => (
-                        <option key={d} value={d}>{d}</option>
-                      ))}
-                    </select>
+                      onChange={handleColumnFilter(setDateFilter)}
+                    />
                   </th>
                   <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}>
-                    <select
+                    <SearchableSelect
                       className="input"
-                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      options={["All", ...assigneeOptions]}
                       value={assigneeFilter}
-                      onChange={(e) => setAssigneeFilter(e.target.value)}
-                    >
-                      <option value="All">All</option>
-                      {EMPLOYEES.map((emp) => (
-                        <option key={emp.id} value={emp.id}>{emp.name}</option>
-                      ))}
-                    </select>
+                      onChange={handleColumnFilter(setAssigneeFilter)}
+                    />
                   </th>
                   <th className="filter-th" style={{ padding: '4px 6px', position: 'sticky', top: 28 }}></th>
                 </tr>
