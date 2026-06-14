@@ -1,8 +1,10 @@
 # Treasury Take Home Assessment
 
-**Deployed app:** [treasury-take-home-drab.vercel.app](https://treasury-take-home-drab.vercel.app/)
+## User Demo (try it out!)
 
-## Demo (click to open in Youtube)
+[treasury-take-home-drab.vercel.app](https://treasury-take-home-drab.vercel.app/)
+
+## Video Demo (click to open in Youtube)
 
 [![Demo video](https://img.youtube.com/vi/R1XpoP1KDFA/hqdefault.jpg)](https://youtu.be/R1XpoP1KDFA)
 
